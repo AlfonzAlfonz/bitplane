@@ -1,9 +1,17 @@
 # ADR-0003: The Engine contract is eighteen coarse actions over a serialisable wire
 
-Status: accepted
+Status: accepted, amended by [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md)
 Date: 2026-09-20
 Ticket: `.alfonz/issues/bitplane-architecture/issues/06-engine-contract-action-set.md`
 Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
+
+> **Amended by ADR-0004 in three places.** The decision below stands; these details do not.
+>
+> 1. **The action set is nineteen, not eighteen.** `plane_repair` joins `Engine`, and `doctor` gains a second sweep (directories holding `.bitplane/` but no `plane.toml`).
+> 2. **Rename's primitive is `git worktree repair`, not `git worktree move`.** You cannot `git worktree move` a worktree whose parent directory has already been moved — git looks for it at the old path. `repair` takes every new path in one invocation and is idempotent by construction. The mechanics described under `PlaneRenameRequest` below are wrong; the response shape is unchanged.
+> 3. **The envelope `Err` rule is widened** from "failures that stopped the operation from *starting*" to "operations that produced **no durable state**" — covering both "never started" and "started, then fully unwound". A failed `plane_create` now returns `Err(EngineError::CreateAborted { projects, rollback })` and loses its `partial` field. Every other operation is unaffected, and `partial: true` keeps meaning what it says.
+>
+> Also settled downstream: `Waivers` grows a sixth member, `source_repo_missing`.
 
 ## Context
 

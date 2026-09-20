@@ -26,7 +26,7 @@ The directory on a host under which plane directories are created. Exactly one p
 **plane directory**
 `<planes-dir>/<plane-id>/` — the one directory holding a single plane's worktrees. Its name **is** the plane's identity: the directory is the key, so renaming a plane is moving it.
 
-`.bitplane/` at its root is **reserved** for bitplane's own per-plane files (hook logs, the lock sentinel). A project whose derived path would start with that segment is refused.
+`.bitplane/` at its root is **reserved** for bitplane's own per-plane files (hook logs, the lock sentinel, the incomplete marker). A project whose derived path would start with that segment is refused.
 
 **plane id**
 The identifier naming the plane directory, unique per host. **Mutable by design.** It defaults to a generated `bp-<hex8>`, may be supplied at `create`, and can be renamed afterwards — a wall of `bp-a3f9c2e1` directories is impossible to navigate, and renaming is the escape hatch.
@@ -105,6 +105,19 @@ Two rules follow, and they are vocabulary rather than implementation:
 
 **sentinel**
 The file a lock is taken on — never the file being protected, because writing by atomic rename replaces the inode and would leave the lock guarding a file that no longer exists. One per plane directory and one per project directory.
+
+**incomplete marker**
+`<plane-dir>/.bitplane/incomplete` — present exactly while a plane has been claimed but never finished being created. A **one-way latch**: written at the claim, removed when the last worktree lands, never written again.
+
+It is not a status field. It says one thing no other signal can: that the plane **never worked**, as opposed to having worked and since lost a worktree. That is what makes a latched plane safe to discard without refusal checks — nothing in it was ever the user's.
+
+Only `create` may write it. An operation on a plane that already holds the user's work must never set it.
+
+**abort window**
+The span of a `create` between the claim and the last worktree landing, in which everything done can be discarded losing nothing. Hooks and fetches are deliberately kept outside it, which is what makes "throw it away and retry" a cheap repair rather than a lossy one.
+
+**repair**
+Reconnecting a plane's worktrees to their source repos after the plane directory moved — whether bitplane moved it (a `rename`) or a user did (`mv`). Distinct from **reap**: repair fixes a plane, reaping destroys one.
 
 **per-source-repo lock**
 The mutex serialising every git command that *writes* to a source repo — `worktree add`, `worktree remove`, and `fetch`. It attaches to the source repo, so operations on different projects never contend. Reads take no lock.
