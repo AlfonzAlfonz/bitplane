@@ -1,6 +1,6 @@
 # ADR-0003: The Engine contract is eighteen coarse actions over a serialisable wire
 
-Status: accepted, amended by [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md)
+Status: accepted, amended by [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md), [ADR-0005](./0005-the-source-repo-is-a-bare-clone-shaped-repo.md) and [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md)
 Date: 2026-09-20
 Ticket: `.alfonz/issues/bitplane-architecture/issues/06-engine-contract-action-set.md`
 Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
@@ -12,6 +12,43 @@ Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
 > 3. **The envelope `Err` rule is widened** from "failures that stopped the operation from *starting*" to "operations that produced **no durable state**" — covering both "never started" and "started, then fully unwound". A failed `plane_create` now returns `Err(EngineError::CreateAborted { projects, rollback })` and loses its `partial` field. Every other operation is unaffected, and `partial: true` keeps meaning what it says.
 >
 > Also settled downstream: `Waivers` grows a sixth member, `source_repo_missing`.
+
+> **Amended by ADR-0005 in four places.**
+>
+> 1. **The action set is seventeen.** `plane_commit` and `plane_push` are scoped
+>    out; `plane_repair` stays. Six reads, eleven mutations.
+> 2. **The `bp push` blocking question below is void, not answered.** A worktree
+>    reads the *source repo's* config, so `origin` is the forge under every clone
+>    flag — the described state cannot occur. **`Pushed` and
+>    `Pushed::remote.is_bitplane_mirror` are deleted.** The real defect was
+>    `git clone --mirror`, now forbidden.
+> 3. **`ProjectView.default_branch` is derived, not stored.** `project.toml`
+>    carries no such field; the third resolution rung reads
+>    `refs/remotes/origin/HEAD`, falling back to the source repo's `HEAD`.
+> 4. **`BranchIntent::Resolve` combined with `fetch: false` is an unresolved
+>    hazard** — it silently creates an unrelated branch against a stale source
+>    repo. Flagged in ADR-0005's consequences, not yet ratified.
+
+> **Amended by ADR-0006 in four places.**
+>
+> 1. **`plane_status` survives and is unchanged.** Recorded explicitly because
+>    ADR-0006 forbids bitplane managing worktree state, and the question of
+>    whether a `git status` fan-out is "managing" was put and answered: reading
+>    is allowed, writing is not.
+> 2. **`Waivers` drops to five** — `{uncommitted, untracked, unpushed,
+>    locked_worktree, source_repo_missing}`. **`project_in_use` is removed**:
+>    removing a project with live worktrees is refused unwaivably, and the error
+>    lists the blocking planes by id.
+> 3. **`unpushed`'s check is specified**, and it is *not* `git branch -d`. The
+>    predicate is *"is the branch tip contained in any `refs/remotes/origin/*`"*.
+>    `git branch -d` compares against the branch's upstream, which for a plane
+>    branch is `origin/main`, so it falsely refuses a branch already safe on the
+>    forge — measured, see ADR-0006.
+> 4. **`doctor` gains a fourth sweep**: source-repo branches with no worktree and
+>    no plane. It reports them and never deletes them.
+>
+> Also: the fan-out key stays `ProjectName` — a plane member is always a
+> registered project, never a bare path.
 
 ## Context
 

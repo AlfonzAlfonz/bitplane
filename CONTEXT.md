@@ -11,6 +11,8 @@ A named set of `(project, branch)` worktrees sharing one lifecycle, on a single 
 
 A plane holds **at most one worktree per project** — its pairs are unique on *project*, not on `(project, branch)`. Two branches of the same repo is two planes. This is what keeps **plane layout** a pure function of the project source, with no branch component to disambiguate.
 
+**A plane has no branch.** `bp create -b feat-x` applies `feat-x` to every member at that moment and the name is not kept; there is no plane-level branch and nothing derives one. A member's branch is whatever its worktree is on right now, read when asked. `bp add` to an existing plane therefore requires an explicit branch. See ADR-0006.
+
 Replaces the working term **worktree group**.
 
 > **Why "plane" and not an existing word?** Four shipping tools already name this concept — **task** (`wkt`), **group** (`multree`), **feature**, **label** — and Android's `repo` has called it a **topic** for fifteen years. Adopting any of them would be instantly legible at the cost of colliding with everything: "task" is overloaded past repair (issue trackers, agents, schedulers — this repo's own tickets carry a `Type: task` line), and "group" collides with git's own vocabulary. "plane" is distinctive, fits the project name, and teaches nothing on first read. That last part is the accepted cost: a newcomer must be told what a plane is once. In exchange the word means exactly one thing everywhere it appears.
@@ -36,7 +38,11 @@ It is therefore **not safe to cache**: nothing outside bitplane may store a plan
 Generated ids are random hex, collision-detected by attempting the directory create and retrying — there is no allocator and no coordination. The `bp-` prefix is **reserved** for generated defaults and rejected as a user-chosen id, so "starts with `bp-`" stays a reliable signal that an id was machine-generated. User-chosen ids are lowercase `[a-z0-9][a-z0-9._-]*`, max 64 — lowercase-only so two ids can never collide on a case-insensitive filesystem.
 
 **plane file**
-`plane.toml` at the **root of the plane directory**, describing the whole plane and every project in it. One file per plane, not one per worktree.
+`plane.toml` at the **root of the plane directory**. One file per plane, not one per worktree.
+
+It is the **membership list**, not the desired state: a dictionary of **project name → path relative to the plane directory root**, and nothing else per member. It answers *which projects are in this plane, and where*. It carries **no branch** — a member's branch is read from the worktree's `HEAD` when asked, so what bitplane reports is true by construction rather than true until someone runs `git switch`. See ADR-0006.
+
+Keying by project is what makes "at most one worktree per project" a property of the file format rather than an invariant anything checks.
 
 Replaces the working term **marker**.
 
@@ -75,16 +81,30 @@ Renaming a project moves its project directory and rewrites its entry; existing 
 How a project is referenced: `@codestyle`. Syntax only — not part of the name, never on disk, never in the store, never in a hook environment variable. Required wherever a path would also be accepted (that being the only real ambiguity), optional elsewhere, and always used when bitplane prints a project.
 
 **projects directory**
-The directory on a host holding one project directory per project. Exactly one per host, under `$XDG_DATA_HOME/bitplane/projects/` — application-owned data, not configuration, because it holds bare mirrors. **This is the registry** — there is no separate registry file, and the term **registry** is retired.
+The directory on a host holding one project directory per project. Exactly one per host, under `$XDG_DATA_HOME/bitplane/projects/` — application-owned data, not configuration, because it holds cloned repositories. **This is the registry** — there is no separate registry file, and the term **registry** is retired.
 
 **project directory**
-`<projects-dir>/<project-name>/`, containing `project.toml` and, for a URL-sourced project, the bare mirror at `repo.git`. A project is exactly "a directory containing `project.toml`", which makes the set of known projects self-describing. The mirror is a named child rather than the directory itself, so git commands run while sitting in a project directory do not silently operate on the mirror.
+`<projects-dir>/<project-name>/`, containing `project.toml` and, for a URL-sourced project, the source repo at `repo.git`. A project is exactly "a directory containing `project.toml`", which makes the set of known projects self-describing. It is a named child rather than the directory itself, so git commands run while sitting in a project directory do not silently operate on it.
 
 **source repo**
-Internal term only: the local git repo a worktree is derived from. That is the bare mirror for a URL project, and the user's own checkout for a local-path project. The per-source-repo git lock attaches to this noun.
+Internal term only: the local git repo a worktree is derived from. That is the bitplane-owned bare clone at `<project-dir>/repo.git` for a URL project, and the user's own checkout for a local-path project. The per-source-repo git lock attaches to this noun.
+
+The working term **bare mirror** is retired, and `git clone --mirror` is **forbidden**. A worktree has no config of its own — it reads the source repo's — so `--mirror`'s `remote.origin.mirror = true` turns an ordinary `git push` into a force-push-everything-and-delete-the-rest against the forge, and its `+refs/*:refs/*` makes `fetch` fail outright once any plane branch also exists on the forge.
+
+**plane branch**
+A branch in a source repo's `refs/heads/*`. For a bitplane-owned source repo these are **exactly** the branches plane members were created on, **past and present** — the forge's branches live in `refs/remotes/origin/*` and never touch that namespace.
+
+"Past and present" rather than "one per plane member": nothing records the branch a worktree was created on, so `destroy` deletes the branch the worktree is **actually on**, and a branch the user switched away from is left behind with no record of it. The namespace is therefore clean but not self-pruning; `doctor` reports branches with no worktree and no plane, and never deletes them.
+
+This is what makes a branch the responsibility of the plane that owns it, and it is secured by one line of config on the source repo: `remote.origin.fetch = +refs/heads/*:refs/remotes/origin/*`. That line is load-bearing, not a default.
+
+An **adopted** project's source repo is the user's own checkout, so its `refs/heads/*` are the user's branches and this invariant does not hold. Only the ownership rule below survives there.
+
+**occupied branch**
+A branch checked out in *any* worktree of a source repo, including the source repo's own. Git refuses `worktree add` on one, so a plane cannot use it. A bitplane-owned source repo is bare and therefore occupies nothing; an adopted project's checkout occupies whatever the user is sitting on, which is a refusal bitplane must report in its own words rather than passing git's message through.
 
 **add** vs **adopt**
-`add` takes a URL and clones a bare mirror into the project directory. **adopt** takes an existing local checkout and creates a project directory whose source points at it **in place** — bitplane never moves, copies or converts a checkout it did not create, because every path outside bitplane pointing at that repo must keep working.
+`add` takes a URL and creates a bare source repo in the project directory. **adopt** takes an existing local checkout and creates a project directory whose source points at it **in place** — bitplane never moves, copies or converts a checkout it did not create, because every path outside bitplane pointing at that repo must keep working.
 
 Adoption applies to projects only. There is no plane-level adoption.
 
@@ -133,7 +153,27 @@ The request/response interface every mutation passes through; the machine contra
 **reap**
 Destroying a plane judged to be garbage.
 
+The veto stands — uncommitted or unpushed work overrides every staleness signal — but the signals are only things bitplane owns: worktree directory missing, git's own `prunable`, source repo gone, `create` never completed, plane untouched for N days. **"Branch merged into its base" and "branch deleted on the remote" are not staleness signals**; they are opinions about the user's git workflow.
+
+**waiver** vs **refusal**
+A **waiver** says *"I accept losing **this** work, which I am looking at"* — `{uncommitted, untracked, unpushed, locked_worktree, source_repo_missing}`, granted per reason and per invocation, never one blanket `--force`.
+
+A **refusal** is what is left when that sentence cannot honestly be said. Removing a project whose worktrees are live in some plane damages planes the user did not mention and is not looking at, so no consent given in that moment is informed: it is refused unwaivably, and the error lists the blocking plane ids. `project_in_use` is **not** a waiver.
+
+**unpushed**
+*The branch tip is not contained in any `refs/remotes/origin/*`.* Deliberately **not** `git branch -d`'s check, which compares against the branch's upstream — for a plane branch that is `origin/main`, so `-d` falsely refuses a branch already safe on the forge. Measured in ADR-0006.
+
+**prunable**
+Git's own word, and a **worktree** property: the worktree's directory is gone. Never a branch predicate.
+
 ## Boundary rules, as vocabulary
+
+**bitplane owns a worktree's existence and location; the user owns its contents and its HEAD.**
+bitplane creates a worktree, moves it, repairs its administrative entry and removes it. It never commits, pushes, stashes, checks out or resets. Between `worktree add` and `worktree remove` the directory is the user's, and switching branches, committing, pushing, rebasing or abandoning it is **ordinary use, not drift**.
+
+**Reading is allowed; writing is not.** `plane_status` shelling `git status` across every member stores nothing and cannot go stale — it is git's answer, rendered. The objection to tracking state is about *storage and judgement*, and reading is neither. See ADR-0006.
+
+Stated as ownership rather than as a list of permitted commands because it decides cases a list would not: it is what makes `git worktree repair` obviously in scope and `git stash` obviously out.
 
 **git protocol yes, forge API no.**
 bitplane speaks git. It does not create pull requests, merge, review, or read CI status.

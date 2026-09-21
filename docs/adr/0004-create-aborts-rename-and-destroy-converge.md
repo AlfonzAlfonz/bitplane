@@ -4,6 +4,24 @@ Status: accepted
 Date: 2026-09-20
 Ticket: `.alfonz/issues/bitplane-architecture/issues/07-plane-lifecycle-partial-failure.md`
 
+> **Amended by [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md) in one place.**
+>
+> **`plane.toml` records membership, not full intent.** The consequence below
+> saying it holds *"full intent — every member with its resolved branch name"* is
+> superseded: **there is no branch in `plane.toml`**. A member is a project name
+> mapped to a path relative to the plane directory root, and a member's branch is
+> read from the worktree's `HEAD` when asked.
+>
+> The step order and everything it buys are unaffected — membership is still
+> written at step 3, before any git work, and still exactly twice on the happy
+> path. What changes is only what the file says about each member.
+>
+> Also from ADR-0006: **`Waivers` drops to five**, losing `project_in_use`
+> (removing a project with live worktrees is now unwaivable), and `destroy`
+> additionally deletes each member's **live** branch — gated by the `unpushed`
+> check it already runs, with no new waiver, and skipped entirely for adopted
+> projects.
+
 ## Context
 
 Creating a plane across four repos is four `git worktree add` calls with no
