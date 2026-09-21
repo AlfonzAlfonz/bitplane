@@ -75,7 +75,7 @@ comes back at once, so one re-run with the right waivers finishes the job.
 $ bp destroy
 ```
 ```json
-{"error":"refused","code":1,"message":"refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@api","message":"feat-login has commits that are not on origin"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive unpushed --waive untracked to accept losing that work."}
+{"error":"refused","code":1,"message":"refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@api","message":"feat-login has commits that are not on origin"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work."}
 ```
 
 The remedy names exactly the reasons that were raised, so it can be pasted.

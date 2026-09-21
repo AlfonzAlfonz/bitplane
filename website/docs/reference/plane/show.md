@@ -123,6 +123,7 @@ findings
 | code | when |
 | --- | --- |
 | `0` | the plane is healthy |
+| `1` | `plane.toml` could not be parsed |
 | `2` | bad arguments, or no plane found |
 | `3` | the plane reported a finding |
 | `4` | git is missing, unusable or older than 2.36 |

@@ -13,7 +13,7 @@ bp project fetch [<project>...]
 ## Arguments
 | argument | required | what it is |
 | --- | --- | --- |
-| `<project>...` | no | Which projects to fetch, as `@name` or `name`. **With none named, every owned project is fetched.** |
+| `<project>...` | no | Which projects to fetch, as `@name` or `name`. **With none named, every registered project is taken in turn.** |
 
 An **adopted** project has nothing to fetch — its source repo is your checkout,
 and `bp` writes nothing there. Naming one is not an error; it reports `nothing

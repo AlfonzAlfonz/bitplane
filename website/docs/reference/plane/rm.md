@@ -104,6 +104,19 @@ $ bp rm @api @web
 
 The count is over the members **you named**, not over the plane.
 
+### The plane was never finished being created
+
+Exit `1`. A latched plane is on its way to being discarded, so `rm` declines
+and points at the one verb that clears it.
+
+```json
+{"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
+```
+
+Refusing here is what keeps [`bp destroy`](./destroy.md#a-plane-that-was-never-finished-being-created)'s
+refusal-free path honest: if `rm` could put real work into a latched plane,
+the latch's promise that *nothing in here is yours* would become a trapdoor.
+
 ### Waived
 ```
 $ bp rm @api @web --waive uncommitted --waive untracked
@@ -121,7 +134,7 @@ The waiver is echoed, so a forced removal is visible in a transcript.
 | code | when |
 | --- | --- |
 | `0` | every named member is out of the plane |
-| `1` | refused, a `pre_worktree_remove` script blocked, or a removal failed |
+| `1` | refused, the plane is incomplete, a `pre_worktree_remove` script blocked, or a removal failed |
 | `2` | bad arguments, or a member that is not in this plane |
 | `4` | git is missing, unusable or older than 2.36 |
 | `5` | a lock could not be taken in time |

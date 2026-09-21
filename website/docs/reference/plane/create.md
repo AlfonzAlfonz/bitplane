@@ -21,13 +21,18 @@ is the repair.
 | --- | --- | --- |
 | `<member>...` | yes, one or more | A [member](../member-syntax.md): `@name` for a registered project, a path for an ad-hoc member. May carry a `:branch` suffix. |
 
-Every member needs a branch, from its own suffix or from `-b`. A member with
-neither is [`branch_unspecified`](../refusals-and-waivers.md#usage-failures).
+A member with no branch — no suffix and no `-b` — lands on its **resolved
+default branch**, by the ladder on
+[`bp project show`](../project/show.md#the-default-branch-is-read-from-git-every-time).
+Only a member whose ladder bottoms out is
+[`branch_unspecified`](../refusals-and-waivers.md#usage-failures).
+
+[`bp add`](./add.md) is stricter: there, a branch is always required.
 
 ## Flags
 | flag | default | what it does |
 | --- | --- | --- |
-| `-b`, `--branch <branch>` | — | The branch for every member that does not carry its own. Applied at this moment and **not remembered**: a plane has no branch. |
+| `-b`, `--branch <branch>` | each member's default branch | The branch for every member that does not carry its own. Applied at this moment and **not remembered**: a plane has no branch. |
 | `--id <id>` | a generated `bp-<hex8>` | The plane id, which is also its directory name. |
 | `--new-branch` | — | The branch must not already exist. Fails if it does. |
 | `--existing-branch` | — | The branch must already exist. Fails if it does not. |
@@ -149,7 +154,7 @@ Exit `1`, and the plane is **kept**. Scripts run after the point of no return,
 so a failure there unwinds nothing — but exiting `0` would hide it.
 
 ```json
-{"error":"script_failed","code":1,"message":"install exited 1 in @api","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"The plane was created. See the log, then run bp run @api install."}
+{"error":"script_failed","code":1,"message":"install exited 1 in @api; the plane was created","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"See the log, fix the cause, then run bp run @api install."}
 ```
 
 ## Exit codes

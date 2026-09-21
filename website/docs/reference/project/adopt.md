@@ -104,6 +104,7 @@ Exit `2`, [exactly as for `bp project add`](./add.md#the-default-name-is-taken).
 | `2` | bad arguments, a taken or invalid name, a reserved path, or a path that is not a repo |
 | `4` | git is missing, unusable or older than 2.36 |
 | `5` | a lock could not be taken in time |
+| `130` | interrupted |
 
 ## See also
 

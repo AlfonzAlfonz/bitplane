@@ -86,6 +86,19 @@ same command works. The plane lock exists because two concurrent `bp add`s on
 one plane would otherwise silently drop one member while leaving its worktree on
 disk, orphaned and invisible.
 
+### The plane was never finished being created
+
+Exit `1`. A latched plane is on its way to being discarded, so `add` declines
+and points at the one verb that clears it.
+
+```json
+{"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
+```
+
+Refusing here is what keeps [`bp destroy`](./destroy.md#a-plane-that-was-never-finished-being-created)'s
+refusal-free path honest: if `add` could put real work into a latched plane,
+the latch's promise that *nothing in here is yours* would become a trapdoor.
+
 ### The run aborts
 Exit `1`. The plane returns to its prior state.
 
@@ -107,7 +120,7 @@ already gone.
 | code | when |
 | --- | --- |
 | `0` | every member was added |
-| `1` | the run aborted, or a `post_worktree_create` script failed |
+| `1` | the run aborted, the plane is incomplete, or a `post_worktree_create` script failed |
 | `2` | bad arguments, a missing branch, a duplicate member, or a branch intent that cannot be honoured |
 | `4` | git is missing, unusable or older than 2.36 |
 | `5` | a lock could not be taken in time |

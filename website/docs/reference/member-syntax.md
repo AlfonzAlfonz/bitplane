@@ -53,7 +53,10 @@ A member may carry its branch, separated by a colon:
 ```
 
 The branch is everything after the **last** colon. Git forbids a colon in a ref
-name, so this stays unambiguous even for a path that contains one.
+name, so whatever follows that colon is unambiguously a branch — but what
+*precedes* it is not always unambiguously a whole path. See
+[the one path a suffix cannot express](#the-one-path-a-suffix-cannot-express)
+below.
 
 A member with a branch suffix overrides `-b` for that member alone:
 
@@ -68,8 +71,10 @@ A plane has no branch, and nothing is derived from what the other members happen
 to be on — that would make `bp add`'s behaviour depend on what you did in an
 unrelated worktree last week.
 
-`bp create` requires one too, for the same reason: with neither `-b` nor a
-suffix, the request is [`branch_unspecified`](./refusals-and-waivers.md#usage-failures).
+`bp create` is looser, because there is no plane yet to derive anything *from*:
+a member with no branch lands on its own repo's default branch, read from git.
+Only where even that cannot be resolved is the request
+[`branch_unspecified`](./refusals-and-waivers.md#usage-failures).
 
 ### The one path a suffix cannot express
 A path whose **last segment contains a colon** cannot carry a branch suffix,

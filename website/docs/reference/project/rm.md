@@ -96,6 +96,7 @@ Exit `2`.
 | `2` | bad arguments, or no such project |
 | `4` | git is missing, unusable or older than 2.36 |
 | `5` | a lock could not be taken in time |
+| `130` | interrupted |
 
 ## See also
 

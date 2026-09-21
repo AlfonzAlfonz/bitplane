@@ -95,7 +95,7 @@ the rename before it starts rather than partway through.
 Exit `1`. The rows say which plane, and re-running converges.
 
 ```json
-{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"Fix what the rows report, then run bp project rename @style style again."}
+{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"The project directory has already moved; run bp repair -p auth-work to reconnect the plane."}
 ```
 
 ## Exit codes

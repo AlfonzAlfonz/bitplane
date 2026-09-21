@@ -128,7 +128,7 @@ these, so that is the order you meant.
 Exit `1`. Later scripts are not run.
 
 ```json
-{"error":"script_failed","code":1,"message":"install exited 1 in @api","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"See the log, fix the cause, then run bp run @api install again."}
+{"error":"script_failed","code":1,"message":"install exited 1 in @api","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"See the log, fix the cause, then run bp run @api install."}
 ```
 
 ### No such script

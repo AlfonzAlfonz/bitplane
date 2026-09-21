@@ -45,9 +45,18 @@ location, so a finding is about one of those:
 | id mismatch | `plane.toml`'s `id` disagrees with the directory name — the plane was moved outside `bp` |
 | prunable | git reports the worktree at a path that no longer exists |
 
-Only [`bp list`](./plane/list.md), [`bp show`](./plane/show.md),
-[`bp status`](./plane/status.md) and [`bp doctor`](./plane/doctor.md) can exit
-`3`. A mutation either does the thing or fails.
+The reads exit `3`: [`bp list`](./plane/list.md),
+[`bp show`](./plane/show.md), [`bp status`](./plane/status.md),
+[`bp project list`](./project/list.md) and [`bp doctor`](./plane/doctor.md).
+
+One mutation joins them. [`bp repair`](./plane/repair.md) is aimed at findings,
+so a finding it cannot fix is the one thing it has to say — it exits `3`.
+Every other mutation either does the thing or fails.
+
+**A listing tolerates a file it cannot read; a `show` does not.** `bp list` and
+`bp project list` report an unreadable file as a row and keep scanning, which is
+exit `3`. `bp show` and `bp project show` have exactly one file to read, so
+failing to read it is exit `1`.
 
 ## `4` is checked once, before anything is touched
 Every command verifies git before it does any work, so `4` never leaves a plane

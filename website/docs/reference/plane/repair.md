@@ -115,6 +115,7 @@ Exit `1`.
 | `3` | repaired, with a finding left that `repair` cannot fix |
 | `4` | git is missing, unusable or older than 2.36 |
 | `5` | a lock could not be taken in time |
+| `130` | interrupted — re-run to converge |
 
 ## See also
 

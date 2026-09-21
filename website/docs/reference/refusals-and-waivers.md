@@ -65,7 +65,7 @@ looked at silently authorise deleting a directory nobody looked at.
 $ bp destroy
 ```
 ```json
-{"error":"refused","code":1,"message":"refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@api","message":"feat-login has commits that are not on origin"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive unpushed --waive untracked to accept losing that work."}
+{"error":"refused","code":1,"message":"refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@api","message":"feat-login has commits that are not on origin"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work."}
 ```
 
 The remedy names **exactly the reasons that were raised**, in the order of the
@@ -115,11 +115,20 @@ scripts in one is meaningless work on a thing headed for deletion.
 {"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
 ```
 
-Raised by [`bp repair`](./plane/repair.md), [`bp rename`](./plane/rename.md),
-[`bp run`](./plane/run.md) and [`bp project rm`](./project/rm.md).
-[`bp destroy`](./plane/destroy.md) is the one command that never raises it —
+Raised by every command that would act on a latched plane:
+[`bp add`](./plane/add.md), [`bp rm`](./plane/rm.md),
+[`bp repair`](./plane/repair.md), [`bp rename`](./plane/rename.md) and
+[`bp run`](./plane/run.md).
+
+[`bp destroy`](./plane/destroy.md) is the one way out, and it never raises it —
 on a latched plane it runs no refusal checks at all, because every one of them
-is structurally impossible there.
+is structurally impossible there. That single exit is the point: the latch means
+*nothing in here is yours*, so every other verb declines and points at the one
+that clears it.
+
+[`bp project rm`](./project/rm.md) does not raise it either. A latched plane
+holding the project blocks the removal, but the error that says so is
+[`project_in_use`](#project_in_use), which names the plane.
 
 #### `branch_occupied`
 Git refuses `worktree add` on a branch that is checked out in any worktree of
@@ -193,17 +202,21 @@ Exit code `1`. The operation ran and did not succeed.
 | `create_aborted` | `create did not finish and bp-a3f9c2e1 could not be fully removed` | `Run` `bp destroy -p bp-a3f9c2e1` `to clear the remnant.` |
 | `add_aborted` | `add did not finish; bp-a3f9c2e1 is unchanged` | `Fix what the rows report, then run bp add again.` |
 | `project_add_aborted` | `@codestyle was not registered` | `The objects fetched so far were kept at ~/.local/share/bitplane/projects/codestyle/repo.git; re-running bp project add will reuse them.` |
-| `script_failed` | `install exited 1 in @api` | `The plane was created. See the log, then run bp run @api install.` |
+| `script_failed` | `install exited 1 in @api; the plane was created` | `See the log, fix the cause, then run bp run @api install.` |
 | `parse_error` | `~/.local/share/bitplane/projects/api/project.toml: unknown key "post_worktree_created" in [scripts.install]` | `Legal keys are argv, shell, post_worktree_create and pre_worktree_remove.` |
+| `fetch_failed` | `1 of 2 projects could not be fetched` | none |
+| `repair_failed` | `@style was renamed; 1 of 2 planes could not be repaired` | `The project directory has already moved; run bp repair -p auth-work to reconnect the plane.` |
 | `io` | `~/planes/bp-a3f9c2e1/plane.toml: permission denied` | none |
 
 A failed `create` or `add` carries its per-member rows **inside** the error, so
 you still see which member failed and whether its cleanup worked. `create` is
 all-or-nothing: it either made a plane or it did not.
 
-`script_failed` is a `post_worktree_create` script. It unwinds nothing — by the
-time it runs the plane is complete and usable — but `bp create` exiting `0`
-would hide a real failure.
+`script_failed` is a `post_worktree_create` script, or one named on
+[`bp run`](./plane/run.md). It unwinds nothing — by the time it runs the plane
+is complete and usable — but `bp create` exiting `0` would hide a real failure.
+The `remedy` is the same wherever it is raised; the `message` is what says
+whether a plane was built.
 
 ### `parse_error`
 An unrecognised key in `plane.toml` or `project.toml` is an error, not a shrug.
