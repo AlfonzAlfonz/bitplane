@@ -1,0 +1,5 @@
+# Pinned per ADR-0001. No MSRV is claimed; this pins the toolchain the project
+# is developed and released with.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]

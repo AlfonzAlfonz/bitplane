@@ -1,0 +1,18 @@
+[package]
+name = "bitplane-cli"
+description = "bp — the bitplane command-line interface, rendering the machine contract for humans."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "bp"
+path = "src/main.rs"
+
+[dependencies]
+bitplane-core.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
