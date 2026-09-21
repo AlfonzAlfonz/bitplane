@@ -76,6 +76,12 @@ const config = {
             label: 'Docs',
           },
           {
+            type: 'docSidebar',
+            sidebarId: 'reference',
+            position: 'left',
+            label: 'Reference',
+          },
+          {
             href: `https://github.com/${owner}/${repo}`,
             label: 'GitHub',
             position: 'right',
