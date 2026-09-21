@@ -1,8 +1,38 @@
 # ADR-0005: The source repo is a bare repo with a clone-shaped refspec
 
-Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), amended by [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md)
+Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), amended by [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md) and by ticket 04 (the CLI reference)
 Date: 2026-09-21
 Ticket: `.alfonz/issues/bitplane-architecture/issues/08-project-schema-and-hooks.md`
+
+> **Amended by ticket 04 (the CLI reference) in one place.**
+>
+> **The resolution ladder produces a *base*, not a branch to land on.** The
+> sentence below reading *"Resolution becomes: the member's branch > the
+> plane-wide `branch` > `refs/remotes/origin/HEAD` > the source repo's own
+> `HEAD` > `BranchUnspecified`"* is retained as the derivation of
+> `ProjectView.default_branch`, and **retired as a fallback for a missing
+> `-b`**. `bp create` and `bp add` both require an explicit branch; the resolved
+> value is what a new plane branch is *cut from*.
+>
+> The ladder's first two rungs also go: the member's branch and the plane-wide
+> `branch` are the answer to *which branch*, which is now always given, and
+> ADR-0006 deleted the plane-level branch outright. What survives is
+> `refs/remotes/origin/HEAD` > the source repo's own `HEAD` >
+> `BaseBranchUnresolved`.
+>
+> The reason is a case this ADR predates. Falling back to the default branch
+> works for an **owned** project, whose source repo is bare and occupies
+> nothing. For an **adopted** project — and for the **ad-hoc member** ADR-0008
+> introduced afterwards — the default branch is precisely the branch the user's
+> own checkout is sitting on, so the fallback resolves straight into the
+> `occupied branch` refusal this same ADR specifies, for exactly the members the
+> convenience was meant to help. A default that refuses for two of the three
+> member kinds is not a default.
+>
+> `BranchUnspecified` is correspondingly split: `branch_unspecified` is a member
+> given no branch at all, and `base_branch_unresolved` is a member whose ladder
+> bottomed out when a new branch had to be cut. See
+> `website/docs/reference/refusals-and-waivers.md`.
 
 ## Context
 
@@ -143,7 +173,9 @@ forge renames its default branch — ADR-0002's objection to a store, at field
 scale. Resolution becomes: the member's branch > the plane-wide `branch` >
 `refs/remotes/origin/HEAD` > the source repo's own `HEAD` (the remote-less
 adopted case) > `BranchUnspecified`. ADR-0003's third rung survives; it reads git
-instead of TOML. `ProjectView.default_branch` stays in the contract as the
+instead of TOML. (**Amended above**: the first two rungs are retired with the
+mandatory branch, and what is left resolves a *base* to cut from rather than a
+branch to land on.) `ProjectView.default_branch` stays in the contract as the
 *resolved* value.
 
 ### `project_fetch` fetches the configured refspec, prunes, and never prunes tags
