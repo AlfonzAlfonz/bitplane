@@ -13,7 +13,7 @@ A plane holds **at most one worktree per project** — its pairs are unique on *
 
 Since ADR-0008 keyed the plane file by path, this is an **invariant the parser checks**, not a property of the file format. Lifting it later requires a new layout rule, because two worktrees of one project derive the same path.
 
-**A plane has no branch.** `bp create -b feat-x` applies `feat-x` to every member at that moment and the name is not kept; there is no plane-level branch and nothing derives one. A member's branch is whatever its worktree is on right now, read when asked. `bp add` to an existing plane therefore requires an explicit branch. See ADR-0006.
+**A plane has no branch.** `bp create -b feat-x` applies `feat-x` to every member at that moment and the name is not kept; there is no plane-level branch and nothing derives one. A member's branch is whatever its worktree is on right now, read when asked. **`bp create` and `bp add` both require an explicit branch** — `create` because a member's own default branch is the one an adopted or ad-hoc checkout already occupies, `add` because deriving one from the existing members would make it depend on unrelated work. See ADR-0006 and ADR-0005's banner.
 
 Replaces the working term **worktree group**.
 
@@ -133,6 +133,11 @@ A branch in a source repo's `refs/heads/*`. For a bitplane-owned source repo the
 This is what makes a branch the responsibility of the plane that owns it, and it is secured by one line of config on the source repo: `remote.origin.fetch = +refs/heads/*:refs/remotes/origin/*`. That line is load-bearing, not a default.
 
 An **adopted** project's source repo is the user's own checkout, so its `refs/heads/*` are the user's branches and this invariant does not hold. Only the ownership rule below survives there.
+
+**base branch**
+The commit a new **plane branch** is cut from, resolved per project by `refs/remotes/origin/HEAD` > the source repo's own `HEAD` > refused. Never stored: a forge that renames its default branch would make a stored copy silently wrong.
+
+It is a **base, not a default to land on**. bitplane never picks a branch for a worktree — every member's branch is given on the command line — so the base is used only when the branch asked for does not yet exist and has to be created. Amends ADR-0005's original resolution ladder, which read as a fallback for an unnamed branch.
 
 **occupied branch**
 A branch checked out in *any* worktree of a source repo, including the source repo's own. Git refuses `worktree add` on one, so a plane cannot use it. A bitplane-owned source repo is bare and therefore occupies nothing; an adopted project's checkout occupies whatever the user is sitting on, which is a refusal bitplane must report in its own words rather than passing git's message through.

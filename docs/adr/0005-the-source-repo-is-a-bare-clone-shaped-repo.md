@@ -1,38 +1,40 @@
 # ADR-0005: The source repo is a bare repo with a clone-shaped refspec
 
-Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), amended by [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md) and by ticket 04 (the CLI reference)
+Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), amended by [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md) and by implementation ticket 04
 Date: 2026-09-21
 Ticket: `.alfonz/issues/bitplane-architecture/issues/08-project-schema-and-hooks.md`
 
-> **Amended by ticket 04 (the CLI reference) in one place.**
+> **Amended by implementation ticket 04
+> (`.alfonz/issues/bitplane-implementation/issues/04-cli-reference.md`) in three
+> places.** The decision below stands; the branch-resolution paragraph does not.
 >
-> **The resolution ladder produces a *base*, not a branch to land on.** The
-> sentence below reading *"Resolution becomes: the member's branch > the
-> plane-wide `branch` > `refs/remotes/origin/HEAD` > the source repo's own
-> `HEAD` > `BranchUnspecified`"* is retained as the derivation of
-> `ProjectView.default_branch`, and **retired as a fallback for a missing
-> `-b`**. `bp create` and `bp add` both require an explicit branch; the resolved
-> value is what a new plane branch is *cut from*.
->
-> The ladder's first two rungs also go: the member's branch and the plane-wide
-> `branch` are the answer to *which branch*, which is now always given, and
-> ADR-0006 deleted the plane-level branch outright. What survives is
-> `refs/remotes/origin/HEAD` > the source repo's own `HEAD` >
-> `BaseBranchUnresolved`.
+> 1. **The ladder resolves a *base*, not a branch to land on.** The sentence
+>    below beginning *"Resolution becomes: the member's branch > the plane-wide
+>    `branch` > …"* is retained as the derivation of
+>    `ProjectView.default_branch` and **retired as a fallback for a missing
+>    `-b`**. `bp create` and `bp add` both require an explicit branch; the
+>    resolved value is what a new plane branch is *cut from*.
+> 2. **The first two rungs go with it.** The member's branch and the plane-wide
+>    `branch` answered *which branch*, which is now always given, and ADR-0006
+>    deleted the plane-level branch outright. What survives is
+>    `refs/remotes/origin/HEAD` > the source repo's own `HEAD` >
+>    `BaseBranchUnresolved`.
+> 3. **`BranchUnspecified` splits in two**: `branch_unspecified` is a member
+>    given no branch at all, and `BaseBranchUnresolved` is a member whose ladder
+>    bottomed out when a new branch had to be cut.
 >
 > The reason is a case this ADR predates. Falling back to the default branch
 > works for an **owned** project, whose source repo is bare and occupies
-> nothing. For an **adopted** project — and for the **ad-hoc member** ADR-0008
-> introduced afterwards — the default branch is precisely the branch the user's
-> own checkout is sitting on, so the fallback resolves straight into the
+> nothing. It fails for everything else: an **adopted** project's source repo is
+> the user's checkout, and so is an **ad-hoc member**'s (a member kind ADR-0008
+> added afterwards), so the default branch there is precisely the branch that
+> checkout is sitting on — and the fallback resolves straight into the
 > `occupied branch` refusal this same ADR specifies, for exactly the members the
-> convenience was meant to help. A default that refuses for two of the three
-> member kinds is not a default.
+> convenience was meant to help. Only one of the three things a plane can hold
+> would have been served by it.
 >
-> `BranchUnspecified` is correspondingly split: `branch_unspecified` is a member
-> given no branch at all, and `base_branch_unresolved` is a member whose ladder
-> bottomed out when a new branch had to be cut. See
-> `website/docs/reference/refusals-and-waivers.md`.
+> The wording is spelled out in `website/docs/reference/refusals-and-waivers.md`
+> and `website/docs/reference/project/show.md`.
 
 ## Context
 
