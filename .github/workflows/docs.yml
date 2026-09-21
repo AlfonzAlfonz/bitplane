@@ -1,0 +1,75 @@
+# Builds the documentation site on every pull request, and publishes it to GitHub
+# Pages when a change to it lands on main.
+#
+# The build is the test: Docusaurus is configured to throw on a broken internal
+# link, so a page pointing at something that does not exist fails this workflow.
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# Pushes to main can queue up; let the newest one win rather than publishing an
+# older build after a newer one. Pull request builds are cancelled on a new push.
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: website
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # There is no package.json at the repo root, so the pnpm version has to be
+      # read from the site's own manifest.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: website/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/build
+
+  deploy:
+    needs: build
+    # Branch, not event: a manual run from a feature branch must not publish
+    # that branch over the live site.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    # Required by actions/deploy-pages: the job mints its own deployment token.
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

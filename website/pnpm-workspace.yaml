@@ -1,0 +1,6 @@
+# Neither install script does anything the build needs — swc resolves its native
+# binary through platform optionalDependencies, and core-js' only prints a
+# funding banner. Answering here keeps `pnpm install` from prompting every run.
+allowBuilds:
+  '@swc/core': false
+  core-js: false
