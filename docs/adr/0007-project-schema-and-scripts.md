@@ -1,7 +1,14 @@
 # ADR-0007: `project.toml` is four fields, and hooks are named scripts
 
-Status: accepted
+Status: accepted, amended by [ADR-0008](./0008-the-plane-file-is-three-keys-and-a-path-keyed-membership-table.md)
 Date: 2026-09-21
+
+> **Amended by ADR-0008 in one place.** An **ad-hoc member** — a plane member
+> whose repo is not a registered project — has no `project.toml` and therefore
+> no scripts. It behaves exactly like a project with an empty `[scripts]`:
+> nothing runs and nothing is reported. `bp run` against one is an error.
+> The log tee to `<plane-dir>/.bitplane/logs/` is unchanged; it was reopened in
+> ticket 09's session and kept.
 Ticket: `.alfonz/issues/bitplane-architecture/issues/08-project-schema-and-hooks.md`
 
 ## Context

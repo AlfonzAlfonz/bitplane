@@ -11,6 +11,8 @@ A named set of `(project, branch)` worktrees sharing one lifecycle, on a single 
 
 A plane holds **at most one worktree per project** — its pairs are unique on *project*, not on `(project, branch)`. Two branches of the same repo is two planes. This is what keeps **plane layout** a pure function of the project source, with no branch component to disambiguate.
 
+Since ADR-0008 keyed the plane file by path, this is an **invariant the parser checks**, not a property of the file format. Lifting it later requires a new layout rule, because two worktrees of one project derive the same path.
+
 **A plane has no branch.** `bp create -b feat-x` applies `feat-x` to every member at that moment and the name is not kept; there is no plane-level branch and nothing derives one. A member's branch is whatever its worktree is on right now, read when asked. `bp add` to an existing plane therefore requires an explicit branch. See ADR-0006.
 
 Replaces the working term **worktree group**.
@@ -40,13 +42,25 @@ Generated ids are random hex, collision-detected by attempting the directory cre
 **plane file**
 `plane.toml` at the **root of the plane directory**. One file per plane, not one per worktree.
 
-It is the **membership list**, not the desired state: a dictionary of **project name → path relative to the plane directory root**, and nothing else per member. It answers *which projects are in this plane, and where*. It carries **no branch** — a member's branch is read from the worktree's `HEAD` when asked, so what bitplane reports is true by construction rather than true until someone runs `git switch`. See ADR-0006.
+Exactly three keys: `version`, `id`, and `[members]`. It is the **membership list**, not the desired state — it answers *which worktrees are in this plane, and what each is a worktree of*. It carries **no branch** (a member's branch is read from the worktree's `HEAD` when asked), no status, no host, no timestamp: every other candidate was either already stored by git or the filesystem, or would have made a read write. See ADR-0006 and ADR-0008.
 
-Keying by project is what makes "at most one worktree per project" a property of the file format rather than an invariant anything checks.
+`[members]` is keyed by the **worktree's path relative to the plane directory root**. The value names what it is a worktree *of*: `@name` for a **project**, any other value being an absolute path to an **ad-hoc member**'s repo.
 
 Replaces the working term **marker**.
 
 The location is load-bearing: the plane directory root sits outside every repo, so the file can never be committed by accident and needs no per-repo ignore rules.
+
+**member**
+One worktree in a plane, together with what it is a worktree of. Identified by its **`MemberRef`** — a project (`@codestyle`) or an ad-hoc repo path — which is unique within a plane and is what keys every plane fan-out. `ProjectName` keys the `project_*` actions only.
+
+A member is *usually* a project, but need not be: see **ad-hoc member**.
+
+**ad-hoc member**
+A member whose worktree comes from a repo that is not a registered project — `bp create ~/projects/bitplane`. **Adopted-shaped, minus the registration**: bitplane never deletes a branch in it, has nothing to fetch, and must report the branch its working tree occupies as a refusal in bitplane's own words.
+
+It is a **member kind, not a project kind**. It has no `project.toml`, so it has no name, no `bin/` and **no scripts** — it behaves exactly like a project with an empty `[scripts]`, silently. `bp run` against one is an error, because `bp run` takes a project.
+
+_Avoid_: unregistered member (the term **registry** is retired), bare member (collides with the bare source repo), non-adopted project (it is not a project).
 
 **plane layout**
 Worktrees live at `<plane-dir>/<derived-path>/`, where the derived path comes from the project's source:
@@ -56,7 +70,9 @@ Worktrees live at `<plane-dir>/<derived-path>/`, where the derived path comes fr
 | `git@gitlab.com:signageos/codestyle.git` | `signageos/codestyle` |
 | `~/projects/bitplane` | `projects/bitplane` |
 
-The path is derived **once, at create time**, never recomputed — so existing planes keep the layout they were built with when the derivation rules change, and a user is free to move worktrees around within a plane.
+The path is derived **once, at create time**, never recomputed — so existing planes keep the layout they were built with when the derivation rules change.
+
+**Moving a worktree within a plane requires `bp repair`.** A plain `mv` makes git report the worktree at its old path and mark it `prunable`, which is a reap staleness signal — so the move is not a free act the user may perform unobserved. `bp repair` scans the plane, runs `git worktree repair`, and rewrites the plane file's keys. Measured in ADR-0008.
 
 ## Projects
 
@@ -94,7 +110,7 @@ When the default collides with an existing project the operation is **refused wi
 Renaming a project moves its project directory and rewrites its entry; existing planes keep the subdirectories they were built with.
 
 **`@` sigil**
-How a project is referenced: `@codestyle`. Syntax only — not part of the name, never on disk, never in the store, never in a `BITPLANE_*` environment variable. Required wherever a path would also be accepted (that being the only real ambiguity), optional elsewhere, and always used when bitplane prints a project.
+How a project is referenced: `@codestyle`. Syntax only — not part of the name, never in a `BITPLANE_*` environment variable, and **never on disk except as the member-kind tag in the plane file**, where it is the one place a project name and a path are both accepted. The parser strips it once, at the read boundary; a project name never carries the sigil in memory or in any other file. Required wherever a path would also be accepted (that being the only real ambiguity), optional elsewhere, and always used when bitplane prints a project.
 
 **projects directory**
 The directory on a host holding one project directory per project. Exactly one per host, under `$XDG_DATA_HOME/bitplane/projects/` — application-owned data, not configuration, because it holds cloned repositories. **This is the registry** — there is no separate registry file, and the term **registry** is retired.
@@ -168,7 +184,9 @@ Only `create` may write it. An operation on a plane that already holds the user'
 The span of a `create` between the claim and the last worktree landing, in which everything done can be discarded losing nothing. Scripts and fetches are deliberately kept outside it, which is what makes "throw it away and retry" a cheap repair rather than a lossy one.
 
 **repair**
-Reconnecting a plane's worktrees to their source repos after the plane directory moved — whether bitplane moved it (a `rename`) or a user did (`mv`). Distinct from **reap**: repair fixes a plane, reaping destroys one.
+Reconnecting a plane's worktrees to their source repos after a directory moved — the plane directory (whether bitplane moved it in a `rename` or a user did with `mv`), a worktree within the plane, or the project directory behind it. Distinct from **reap**: repair fixes a plane, reaping destroys one.
+
+It is the one operation licensed to **scan the plane directory** for worktrees, because it is an explicit request rather than a read. That is what keeps `list` and `show` to one `readdir` and one small file per plane.
 
 **per-source-repo lock**
 The mutex serialising every git command that *writes* to a source repo — `worktree add`, `worktree remove`, and `fetch`. It attaches to the source repo, so operations on different projects never contend. Reads take no lock.

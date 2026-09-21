@@ -1,6 +1,19 @@
 # ADR-0006: bitplane owns a worktree's existence and location, not its contents
 
-Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md) and [ADR-0005](./0005-the-source-repo-is-a-bare-clone-shaped-repo.md)
+Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md) and [ADR-0005](./0005-the-source-repo-is-a-bare-clone-shaped-repo.md); amended by [ADR-0008](./0008-the-plane-file-is-three-keys-and-a-path-keyed-membership-table.md)
+
+> **Amended by ADR-0008 in two places.** The decision below stands — no branch
+> in `plane.toml`, paths rather than a formula — but two details do not.
+>
+> 1. **The membership dictionary is reversed**: `worktree path -> MemberRef`,
+>    not `project -> path`. "At most one worktree per project" therefore stops
+>    being a property of the file format and becomes an invariant the parser
+>    checks, bought deliberately so multi-worktree-per-project needs no format
+>    migration.
+> 2. **"A user is free to move worktrees around within a plane" is retracted**
+>    (it is CONTEXT.md's plane-layout line, written to justify storing paths).
+>    Measured: a plain `mv` makes git report the worktree at its old path and
+>    mark it `prunable`. `bp repair` is what supports the move.
 Date: 2026-09-21
 Ticket: none — a standing-principle session, feeding tickets 09 and 10
 

@@ -1,6 +1,6 @@
 # ADR-0003: The Engine contract is eighteen coarse actions over a serialisable wire
 
-Status: accepted, amended by [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md), [ADR-0005](./0005-the-source-repo-is-a-bare-clone-shaped-repo.md) and [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md)
+Status: accepted, amended by [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md), [ADR-0005](./0005-the-source-repo-is-a-bare-clone-shaped-repo.md), [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md) and [ADR-0008](./0008-the-plane-file-is-three-keys-and-a-path-keyed-membership-table.md)
 Date: 2026-09-20
 Ticket: `.alfonz/issues/bitplane-architecture/issues/06-engine-contract-action-set.md`
 Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
@@ -49,6 +49,28 @@ Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
 >
 > Also: the fan-out key stays `ProjectName` — a plane member is always a
 > registered project, never a bare path.
+
+> **Amended by ADR-0008 in four places.**
+>
+> 1. **A plane member is no longer always a registered project.** An **ad-hoc
+>    member** is an absolute path to an unregistered repo, accepted by
+>    `plane_create` and `plane_add`. The sentence "the fan-out key stays
+>    `ProjectName` — a plane member is always a registered project, never a bare
+>    path" is superseded.
+> 2. **Plane fan-outs are keyed by `MemberRef`**, the union
+>    `{ Project(ProjectName), Repo(PathBuf) }`, rendered as the string the plane
+>    file stores. `ProjectName` still keys every `project_*` action.
+> 3. **`PerPlane<T>` keyed by `PlaneId` joins the contract**, for
+>    `project_rename`'s sweep across every plane holding the project.
+> 4. **`PlaneSummary` changes**: `bitplane_version` is **struck** (no source, no
+>    consumer), `host` is filled by the answering engine rather than read from
+>    disk, and `created_at` becomes `Option<Timestamp>` derived from the plane
+>    directory's birth time.
+>
+> Also settled downstream: ticket 09's `PlaneRef::ContainingPath` resolves by
+> canonicalising and walking to the filesystem root, innermost `plane.toml`
+> wins, with no planes-directory constraint — and it resolves to a **plane
+> only**, never to a member.
 
 ## Context
 
