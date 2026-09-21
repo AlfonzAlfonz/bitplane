@@ -28,7 +28,7 @@ The directory on a host under which plane directories are created. Exactly one p
 **plane directory**
 `<planes-dir>/<plane-id>/` — the one directory holding a single plane's worktrees. Its name **is** the plane's identity: the directory is the key, so renaming a plane is moving it.
 
-`.bitplane/` at its root is **reserved** for bitplane's own per-plane files (hook logs, the lock sentinel, the incomplete marker). A project whose derived path would start with that segment is refused.
+`.bitplane/` at its root is **reserved** for bitplane's own per-plane files (script logs, the lock sentinel, the incomplete marker). A project whose derived path would start with that segment is refused.
 
 **plane id**
 The identifier naming the plane directory, unique per host. **Mutable by design.** It defaults to a generated `bp-<hex8>`, may be supplied at `create`, and can be renamed afterwards — a wall of `bp-a3f9c2e1` directories is impossible to navigate, and renaming is the escape hatch.
@@ -61,14 +61,30 @@ The path is derived **once, at create time**, never recomputed — so existing p
 ## Projects
 
 **project**
-Exactly one repo, plus its hooks and settings. The user-facing noun for a thing a plane can contain.
+Exactly one repo, plus its scripts and settings. The user-facing noun for a thing a plane can contain.
 
 Replaces **source repo** as the user-facing term (see below for the surviving internal sense).
 
 A project that bundles several repos is *not* this concept — bundling belongs to plane templates, still unspecified.
 
 **project source**
-Either a git URL or a local path.
+Either a git URL or a local path — and which one it is *is* the project's kind, so the two are never named separately. See **owned project** / **adopted project**.
+
+**owned project**
+A project whose source repo bitplane built and owns: source `type = "owned"`, always a `url`, always a bare repo at `<project-dir>/repo.git`.
+
+Ownership — not "it came from a URL" — is what every rule in the design branches on: the **plane branch** invariant, `push.default = current`, `destroy` deleting the member's branch, occupying no branch, and having something to fetch. A reader who knows a project is owned predicts all five.
+
+_Avoid_: URL project, URL-sourced project.
+
+**adopted project**
+A project whose source repo is the user's own checkout, pointed at in place: source `type = "adopted"`, always a `path`. bitplane never moves, copies or converts it, never deletes a branch in it, and cannot tell its own branches from the user's there.
+
+_Avoid_: local project, local-path project.
+
+The two are in **1:1 correspondence**: an owned project's source is always a `url`, an adopted project's always a `path`. This holds because `adopt` never converts a checkout and `add` always builds a bare repo — so it is a rule that a future "adopt an existing bare repo" would break, not a coincidence.
+
+Rejected names, so they stop coming back: **remote** collides with git's own `remote` and with **host** (`bp --host devbox` makes "remote project" read as *a project on another machine*); **native** collides with ADR-0001's "no native dependencies"; **cloned** is false, since ADR-0005 builds the repo with `git init --bare` rather than `git clone`.
 
 **project name**
 User-supplied, defaulting to the last segment of the source path (`codestyle`). Flat, unique per host, renameable.
@@ -78,16 +94,18 @@ When the default collides with an existing project the operation is **refused wi
 Renaming a project moves its project directory and rewrites its entry; existing planes keep the subdirectories they were built with.
 
 **`@` sigil**
-How a project is referenced: `@codestyle`. Syntax only — not part of the name, never on disk, never in the store, never in a hook environment variable. Required wherever a path would also be accepted (that being the only real ambiguity), optional elsewhere, and always used when bitplane prints a project.
+How a project is referenced: `@codestyle`. Syntax only — not part of the name, never on disk, never in the store, never in a `BITPLANE_*` environment variable. Required wherever a path would also be accepted (that being the only real ambiguity), optional elsewhere, and always used when bitplane prints a project.
 
 **projects directory**
 The directory on a host holding one project directory per project. Exactly one per host, under `$XDG_DATA_HOME/bitplane/projects/` — application-owned data, not configuration, because it holds cloned repositories. **This is the registry** — there is no separate registry file, and the term **registry** is retired.
 
 **project directory**
-`<projects-dir>/<project-name>/`, containing `project.toml` and, for a URL-sourced project, the source repo at `repo.git`. A project is exactly "a directory containing `project.toml`", which makes the set of known projects self-describing. It is a named child rather than the directory itself, so git commands run while sitting in a project directory do not silently operate on it.
+`<projects-dir>/<project-name>/`, containing `project.toml` and, for an owned project, the source repo at `repo.git`.
+
+`bin/` under it is **prepended to `PATH`** for every script that project runs, so a project can ship its own executables and have them win. It holds executables; a **script** is a declared entry in `project.toml`. The directory is the user's to create and bitplane never writes to it — which is what keeps the shell-alias trust posture true. A project is exactly "a directory containing `project.toml`", which makes the set of known projects self-describing. It is a named child rather than the directory itself, so git commands run while sitting in a project directory do not silently operate on it.
 
 **source repo**
-Internal term only: the local git repo a worktree is derived from. That is the bitplane-owned bare clone at `<project-dir>/repo.git` for a URL project, and the user's own checkout for a local-path project. The per-source-repo git lock attaches to this noun.
+Internal term only: the local git repo a worktree is derived from — the bare repo at `<project-dir>/repo.git` for an **owned project**, the user's own checkout for an **adopted project**. The per-source-repo git lock attaches to this noun.
 
 The working term **bare mirror** is retired, and `git clone --mirror` is **forbidden**. A worktree has no config of its own — it reads the source repo's — so `--mirror`'s `remote.origin.mirror = true` turns an ordinary `git push` into a force-push-everything-and-delete-the-rest against the forge, and its `+refs/*:refs/*` makes `fetch` fail outright once any plane branch also exists on the forge.
 
@@ -108,8 +126,21 @@ A branch checked out in *any* worktree of a source repo, including the source re
 
 Adoption applies to projects only. There is no plane-level adoption.
 
-**hook**
-A user-declared command bitplane runs at a defined point in a plane's lifecycle. Declared on a project.
+**script**
+A **named** user-declared command, declared on a project, bound to zero or more **script points** and always runnable on demand with `bp run @project <name>`.
+
+Declared as `[scripts.<name>]` in `project.toml` with either `argv` or `shell`, plus a boolean toggle per point it is bound to. **Order is TOML declaration order** — scripts run sequentially, so that order is semantic, and bitplane never rewrites the table.
+
+`package.json`'s word for the same concept, so `bp run @api build` reads like `npm run build`. Distinct from the executables in `<project-dir>/bin/`, which are files on `PATH`, not declarations.
+
+Replaces the working term **hook**, which stopped fitting once a script could be invoked by name rather than only fired at a point. _Avoid_: hook, action (the Engine's verbs are actions), task, command.
+
+**script point**
+A moment in a worktree's lifecycle at which bound scripts fire. Exactly two: `post_worktree_create` (per member, on `create` and `add`) and `pre_worktree_remove` (on `destroy` and `remove`).
+
+Named for the **worktree**, not the plane, because scripts are per-project. A point is a binding, not something you can invoke: `bp run` takes script names only.
+
+**Pre blocks, post does not.** A non-zero `pre_worktree_remove` aborts the pass and removes nothing; a failed `post_worktree_create` is reported and unwinds nothing. `--no-scripts` is always available, so a `project.toml` can never make a plane undestroyable.
 
 ## State
 
@@ -121,7 +152,7 @@ The term **store** is retired. It described a thing that was never built — onc
 Two rules follow, and they are vocabulary rather than implementation:
 
 - **A plane is exactly a directory containing a plane file**, the mirror of "a project is exactly a directory containing `project.toml`". Anything else in the planes directory is not a plane and is ignored.
-- **A read never writes.** `list`, `show` and discovery take no locks and create no files, which is what makes them safe to run from a hook or in a loop.
+- **A read never writes.** `list`, `show` and discovery take no locks and create no files, which is what makes them safe to run from a script or in a loop.
 
 **sentinel**
 The file a lock is taken on — never the file being protected, because writing by atomic rename replaces the inode and would leave the lock guarding a file that no longer exists. One per plane directory and one per project directory.
@@ -134,7 +165,7 @@ It is not a status field. It says one thing no other signal can: that the plane 
 Only `create` may write it. An operation on a plane that already holds the user's work must never set it.
 
 **abort window**
-The span of a `create` between the claim and the last worktree landing, in which everything done can be discarded losing nothing. Hooks and fetches are deliberately kept outside it, which is what makes "throw it away and retry" a cheap repair rather than a lossy one.
+The span of a `create` between the claim and the last worktree landing, in which everything done can be discarded losing nothing. Scripts and fetches are deliberately kept outside it, which is what makes "throw it away and retry" a cheap repair rather than a lossy one.
 
 **repair**
 Reconnecting a plane's worktrees to their source repos after the plane directory moved — whether bitplane moved it (a `rename`) or a user did (`mv`). Distinct from **reap**: repair fixes a plane, reaping destroys one.
@@ -181,4 +212,4 @@ bitplane speaks git. It does not create pull requests, merge, review, or read CI
 **git's credentials, never ours.**
 bitplane shells out to git and lets git's credential helpers and `ssh-agent` do the work. It never reads, stores, prompts for or forwards a credential. A private repo you cannot `git clone` by hand is one bitplane cannot use.
 
-This is the auth-shaped restatement of the rule above, and it is what keeps URL-sourced projects from dragging a secrets story into the tool.
+This is the auth-shaped restatement of the rule above, and it is what keeps owned projects from dragging a secrets story into the tool.
