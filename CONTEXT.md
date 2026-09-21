@@ -135,7 +135,9 @@ This is what makes a branch the responsibility of the plane that owns it, and it
 An **adopted** project's source repo is the user's own checkout, so its `refs/heads/*` are the user's branches and this invariant does not hold. Only the ownership rule below survives there.
 
 **base branch**
-The commit a new **plane branch** is cut from, resolved per project by `refs/remotes/origin/HEAD` > the source repo's own `HEAD` > refused. Never stored: a forge that renames its default branch would make a stored copy silently wrong.
+The commit a new **plane branch** is cut from, resolved per project by `refs/remotes/origin/HEAD` > the source repo's own `HEAD` > unspecified. Never stored: a forge that renames its default branch would make a stored copy silently wrong.
+
+An unresolved base is not an error by itself — it is reported as unspecified, and refused (`base_branch_unresolved`) only at the moment a **new** branch has to be cut from it.
 
 It is a **base, not a default to land on**. bitplane never picks a branch for a worktree — every member's branch is given on the command line — so the base is used only when the branch asked for does not yet exist and has to be created. Amends ADR-0005's original resolution ladder, which read as a fallback for an unnamed branch.
 

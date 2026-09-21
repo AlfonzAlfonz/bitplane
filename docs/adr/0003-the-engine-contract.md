@@ -1,6 +1,6 @@
 # ADR-0003: The Engine contract is eighteen coarse actions over a serialisable wire
 
-Status: accepted, amended by [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md), [ADR-0005](./0005-the-source-repo-is-a-bare-clone-shaped-repo.md), [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md), [ADR-0008](./0008-the-plane-file-is-three-keys-and-a-path-keyed-membership-table.md) and implementation ticket 04
+Status: accepted, amended by [ADR-0004](./0004-create-aborts-rename-and-destroy-converge.md), [ADR-0005](./0005-the-source-repo-is-a-bare-clone-shaped-repo.md), [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md), [ADR-0008](./0008-the-plane-file-is-three-keys-and-a-path-keyed-membership-table.md) and implementation ticket 04 (`.alfonz/issues/bitplane-implementation/issues/04-cli-reference.md`)
 Date: 2026-09-20
 Ticket: `.alfonz/issues/bitplane-architecture/issues/06-engine-contract-action-set.md`
 Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
@@ -25,7 +25,7 @@ Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
 > 3. **`ProjectView.default_branch` is derived, not stored.** `project.toml`
 >    carries no such field; the third resolution rung reads
 >    `refs/remotes/origin/HEAD`, falling back to the source repo's `HEAD`.
->    **Further amended by implementation ticket 04**: there is no first or
+>    **Further amended by implementation ticket 04** (`.alfonz/issues/bitplane-implementation/issues/04-cli-reference.md`): there is no first or
 >    second rung any more. `refs/remotes/origin/HEAD` is now the *first*, the
 >    resolved value is the **base** a new branch is cut from rather than a
 >    branch a worktree lands on, and `create` and `add` both require an explicit
@@ -33,6 +33,10 @@ Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
 > 4. **`BranchIntent::Resolve` combined with `fetch: false` is an unresolved
 >    hazard** — it silently creates an unrelated branch against a stale source
 >    repo. Flagged in ADR-0005's consequences, not yet ratified.
+>    **Since ratified by
+>    [ADR-0007](./0007-project-schema-and-scripts.md)**: the combination is
+>    refused at request validation, before anything is touched, and implementation
+>    ticket 04 spells it `branch_intent_requires_fetch` on the CLI.
 
 > **Amended by ADR-0006 in four places.**
 >

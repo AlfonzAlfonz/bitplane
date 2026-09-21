@@ -6,7 +6,9 @@ Ticket: `.alfonz/issues/bitplane-architecture/issues/08-project-schema-and-hooks
 
 > **Amended by implementation ticket 04
 > (`.alfonz/issues/bitplane-implementation/issues/04-cli-reference.md`) in three
-> places.** The decision below stands; the branch-resolution paragraph does not.
+> places.** The decision below stands. The branch-resolution paragraph stands as
+> a *derivation* and no longer as a *fallback*; the rest of this banner is what
+> changed.
 >
 > 1. **The ladder resolves a *base*, not a branch to land on.** The sentence
 >    below beginning *"Resolution becomes: the member's branch > the plane-wide
@@ -17,11 +19,12 @@ Ticket: `.alfonz/issues/bitplane-architecture/issues/08-project-schema-and-hooks
 > 2. **The first two rungs go with it.** The member's branch and the plane-wide
 >    `branch` answered *which branch*, which is now always given, and ADR-0006
 >    deleted the plane-level branch outright. What survives is
->    `refs/remotes/origin/HEAD` > the source repo's own `HEAD` >
->    `BaseBranchUnresolved`.
+>    `refs/remotes/origin/HEAD` > the source repo's own `HEAD` > unspecified.
 > 3. **`BranchUnspecified` splits in two**: `branch_unspecified` is a member
->    given no branch at all, and `BaseBranchUnresolved` is a member whose ladder
->    bottomed out when a new branch had to be cut.
+>    given no branch at all, and `base_branch_unresolved` is a member whose
+>    ladder bottomed out **when a new branch had to be cut**. An unresolved base
+>    is not an error on its own — it only matters when there is nothing to cut
+>    from.
 >
 > The reason is a case this ADR predates. Falling back to the default branch
 > works for an **owned** project, whose source repo is bare and occupies
@@ -251,7 +254,9 @@ one running `git push`.
   push time, having already committed. The recommendation on the table is that
   `Resolve` requires a fetch in the same operation and errors naming the
   staleness otherwise, with `RequireNew` as the way to ask for a new branch
-  deliberately. **Not ratified.**
+  deliberately. ~~**Not ratified.**~~ **Ratified by
+  [ADR-0007](./0007-project-schema-and-scripts.md)**: refused at request
+  validation, spelled `branch_intent_requires_fetch` on the CLI.
 - **Ticket 10 gains a second census oracle.** `refs/heads/*` in a bitplane-owned
   source repo is exactly the set of plane branches, so "which branches does
   bitplane own here" is one ref walk with no git-worktree parsing, alongside
