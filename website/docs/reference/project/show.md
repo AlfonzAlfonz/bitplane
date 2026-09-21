@@ -72,7 +72,7 @@ It is **not a stored field**; it is resolved on every call, by this ladder:
 
 1. `refs/remotes/origin/HEAD` — settable with `git remote set-head origin <branch>`, durable across fetches
 2. the source repo's own `HEAD`, for an adopted project with no remote
-3. otherwise, unspecified — and creating a **new** branch in that project is an error
+3. otherwise, unspecified — and a command that would have to cut a **new** branch here is [`base_branch_unresolved`](../refusals-and-waivers.md#usage-failures)
 
 A stored copy would be a second source of truth that goes silently stale when a
 forge renames its default branch.

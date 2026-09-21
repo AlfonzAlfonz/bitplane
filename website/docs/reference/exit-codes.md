@@ -12,7 +12,7 @@ and every code below is reachable from a worked example on a command page.
 | `0` | ok | The command did what was asked. | [`bp list`](./plane/list.md#everything-is-fine) |
 | `1` | failure | The operation ran and did not succeed — including every refusal. | [`bp destroy`](./plane/destroy.md#refused) |
 | `2` | usage | The request was malformed, or what it asked to create already exists. | [`bp create --id`](./plane/create.md#the-id-is-already-taken) |
-| `3` | drift | The command **succeeded** and reported a finding. | [`bp status`](./plane/status.md#a-member-whose-worktree-is-gone) |
+| `3` | drift | The command **succeeded** and reported a finding about a plane or a project. | [`bp status`](./plane/status.md#a-member-whose-worktree-is-gone) |
 | `4` | prerequisite missing | git is absent, unusable, or older than 2.36. | [`bp create`](./plane/create.md#git-is-too-old) |
 | `5` | busy | A lock could not be taken in time. Try again. | [`bp add`](./plane/add.md#another-bp-holds-the-plane) |
 | `130` | interrupted | `128 + SIGINT`. The shell's convention, not `bp`'s. | [`bp create`](./plane/create.md#ctrl-c) |
@@ -31,8 +31,12 @@ apart to know what to do:
 
 ## `3` is a success, and it is not about your work
 
-`bp` exits `3` when the command **worked** and there is a finding on a plane's
-health. The result is on stdout; `3` is the flag saying "look at it".
+`bp` exits `3` when the command **worked** and there is a finding. The result is
+on stdout; `3` is the flag saying "look at it".
+
+Most findings are about a plane. One is not: a `project.toml` that will not
+parse is a finding on a **project**, which is why
+[`bp project list`](./project/list.md) can exit `3` with no plane in sight.
 
 **Drift is never your uncommitted work.** A worktree with unstaged changes, a
 branch you switched, a rebase in progress — all of that is ordinary use, and
@@ -54,7 +58,7 @@ The second kind is one row:
 
 | finding | what it means |
 | --- | --- |
-| unreadable | a `plane.toml` or `project.toml` did not parse, and the listing skipped past it |
+| unreadable | a `plane.toml` or `project.toml` did not parse; the listing printed it as a row in an error state and carried on |
 
 The reads exit `3`: [`bp list`](./plane/list.md),
 [`bp show`](./plane/show.md), [`bp status`](./plane/status.md),

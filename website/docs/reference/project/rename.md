@@ -24,8 +24,11 @@ derived from it, so the sweep is unavoidable.
 | `<new-name>` | yes | Its new name, which is also its new directory name. |
 
 A name is lowercase `[a-z0-9][a-z0-9._-]*`, flat, and unique per host. A new
-name already in use is
+name already in use by a **different** project is
 [`project_name_taken`](../refusals-and-waivers.md#usage-failures).
+
+**Renaming a project to the name it already holds is legal**, and it is how an
+interrupted rename is finished — see [converging](#converging) below.
 
 ## Flags
 
@@ -45,10 +48,19 @@ Holders are found by scanning the planes directory, because nothing maps a
 project to its planes and nothing should: an index would be a cache of something
 the filesystem already answers.
 
+### Converging
+
 `name` is written last for the same reason [`bp rename`](../plane/rename.md)
 writes `id` last. `project.toml`'s `name` is an **integrity check**, not the
 authority — the directory name wins — so a disagreement is a reliable "this
-rename is unfinished" signal, and re-running converges.
+rename is unfinished" signal.
+
+Step 2 is the point after which the project answers to its **new** name, because
+the directory is the authority. So the command that finishes an interrupted
+rename is `bp project rename @style style` — a rename to the name it already
+holds, which is a no-op on a consistent project and does the outstanding work on
+an inconsistent one. Steps 3, 4 and 5 are each idempotent, so it can be run any
+number of times.
 
 ### Layout is not recomputed
 
@@ -87,8 +99,11 @@ $ bp project rename @codestyle style
 Exit `2`. Nothing has been touched.
 
 ```json
-{"error":"project_name_taken","code":2,"message":"style is already a project","problems":[],"remedy":"Choose another name, or rename that project first."}
+{"error":"project_name_taken","code":2,"message":"style is already a different project","problems":[],"remedy":"Choose another name, or rename that project first."}
 ```
+
+"a **different** project" is load-bearing: `bp project rename @style style` is
+not this error, it is [the converge command](#converging).
 
 ### A plane cannot be locked
 
@@ -101,14 +116,14 @@ the rename before it starts rather than partway through.
 
 ### A repair fails in one plane
 
-Exit `1`. The project itself has been renamed — `project.toml`'s `name` is
-written last, so reaching this error means it landed. What is left is per-plane,
-and the rows say which plane. Re-running the rename would now be a rename to the
-name it already holds; [`bp repair`](../plane/repair.md) in each named plane is
-the cure, and it is idempotent.
+Exit `1`. The directory has already moved, so the project now answers to
+`@style`; the rows say which plane still needs repairing. Run
+`bp project rename @style style` to finish it, or
+[`bp repair`](../plane/repair.md) in each named plane — both converge on the
+same state.
 
 ```json
-{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"Fix what the rows report, then run bp repair in each plane they name."}
+{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"Fix what the rows report, then run bp project rename @style style again; repairing is idempotent."}
 ```
 
 ## Exit codes

@@ -167,7 +167,7 @@ Exit `1`, and the plane is **kept**. Scripts run after the point of no return,
 so a failure there unwinds nothing — but exiting `0` would hide it.
 
 ```json
-{"error":"script_failed","code":1,"message":"install exited 1 in @api; the plane was created","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"See the log, fix the cause, then run bp run @api install."}
+{"error":"script_failed","code":1,"message":"install exited 1 in @api; the worktree was created","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"See the log, fix the cause, then run bp run @api install."}
 ```
 
 ## Exit codes

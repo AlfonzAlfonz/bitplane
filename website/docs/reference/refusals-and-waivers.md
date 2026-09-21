@@ -184,6 +184,7 @@ exists. Re-running identically will never help.
 | `reserved_path_segment` | `a worktree of this repo would land at .bitplane/api, which is reserved` | `Move the repository out of a directory called .bitplane.` |
 | `duplicate_member` | `@api is already a member of bp-a3f9c2e1` | `Run` `bp rm @api`, `then` `bp add @api:feat-login.` |
 | `branch_unspecified` | `no branch given for @api` | `Pass -b <branch>, or write the member as @api:<branch>.` |
+| `base_branch_unresolved` | `@api has no default branch to cut feat-login from` | `Set one with git remote set-head origin <branch>, or pass --existing-branch to use a branch that is already there.` |
 | `branch_intent_requires_fetch` | `--no-fetch cannot be combined with the default branch intent` | `Drop --no-fetch, or pass --new-branch to create feat-x deliberately.` |
 | `member_path_ambiguous` | `~/projects/weird:name could be a path or a member with a branch suffix` | `Register it with` `bp project adopt` `and use its @name instead.` |
 | `plane_not_found` | `no plane contains /Users/alfonz/src` | `cd into a plane, or name one with --plane.` |
@@ -215,18 +216,20 @@ Exit code `1`. The operation ran and did not succeed.
 | `create_aborted` | `create did not finish and bp-a3f9c2e1 could not be fully removed` | `Run` `bp destroy -p bp-a3f9c2e1` `to clear the remnant.` |
 | `add_aborted` | `add did not finish; bp-a3f9c2e1 is unchanged` | `Fix what the rows report, then run bp add again.` |
 | `project_add_aborted` | `@codestyle was not registered` | `The objects fetched so far were kept at ~/.local/share/bitplane/projects/codestyle/repo.git; re-running bp project add will reuse them.` |
-| `script_failed` | `install exited 1 in @api; the plane was created` | `See the log, fix the cause, then run bp run @api install.` |
+| `script_failed` | `install exited 1 in @api; the worktree was created` | `See the log, fix the cause, then run bp run @api install.` |
 | `script_failed` | `install exited 1 in @api` | `See the log, fix the cause, then run bp run @api install.` |
 | `parse_error` | `~/.local/share/bitplane/projects/api/project.toml: unknown key "post_worktree_created" in [scripts.install]` | `Legal keys are argv, shell, post_worktree_create and pre_worktree_remove.` |
 | `fetch_failed` | `1 of 2 fetchable projects could not be fetched` | none |
-| `repair_failed` | `@style was renamed; 1 of 2 planes could not be repaired` | `Fix what the rows report, then run bp repair in each plane they name.` |
+| `repair_failed` | `@style was renamed; 1 of 2 planes could not be repaired` | `Fix what the rows report, then run the command again; repairing is idempotent, so re-running is safe.` |
 | `io` | `~/planes/bp-a3f9c2e1/plane.toml: permission denied` | none |
 
 `repair_failed` is raised by [`bp rename`](./plane/rename.md),
 [`bp repair`](./plane/repair.md) and [`bp project rename`](./project/rename.md)
-alike. Its `message` names what did land before the repairs were attempted; its
-rows name the planes that still need one, and `bp repair` is idempotent, so
-running it there is always safe.
+alike. Its `message` names what *did* land before the repairs were attempted, so
+you know how much of the operation is behind you; its rows name what still needs
+one. The remedy is the same for all three because all three converge: the
+primitive underneath them is `git worktree repair`, which is idempotent by
+construction, so running the failed command again is always safe.
 
 A failed `create` or `add` carries its per-member rows **inside** the error, so
 you still see which member failed and whether its cleanup worked. `create` is
@@ -236,9 +239,10 @@ all-or-nothing: it either made a plane or it did not.
 [`bp run`](./plane/run.md). It unwinds nothing — by the time it runs the plane
 is complete and usable — but `bp create` exiting `0` would hide a real failure.
 The `remedy` is the same wherever it is raised — re-running the script is the
-only move either way. The `message` is what differs: from `bp create` or
-`bp add` it says the plane was built, and from [`bp run`](./plane/run.md) there
-is no plane to report on, so it says only what failed.
+only move either way. The `message` is what differs, in one clause: from
+[`bp create`](./plane/create.md) and [`bp add`](./plane/add.md) it says the
+worktree was created regardless, and from [`bp run`](./plane/run.md) there is no
+such news, so it says only what failed.
 
 ### `parse_error`
 
