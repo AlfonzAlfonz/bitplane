@@ -17,6 +17,7 @@ derived from it, so the sweep is unavoidable.
 `rename` **converges**: interrupt it and run it again, and it finishes.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<project>` | yes | The project to rename, as `@name` or `name`. |
@@ -27,9 +28,11 @@ name already in use is
 [`project_name_taken`](../refusals-and-waivers.md#usage-failures).
 
 ## Flags
+
 Only the [global flags](../global-flags.md#global-flags).
 
 ## What it does
+
 1. **Acquire every holding plane's lock, then the project lock.** Plane before
    project, never the reverse — that ordering is what makes a deadlock cycle
    unconstructible.
@@ -48,12 +51,14 @@ authority — the directory name wins — so a disagreement is a reliable "this
 rename is unfinished" signal, and re-running converges.
 
 ### Layout is not recomputed
+
 Existing planes keep the subdirectories they were built with. A worktree's path
 inside a plane derives from the project **source**, once, at create time — and
 the source has not changed here. Renaming `@codestyle` to `@style` does not move
 `signageos/codestyle` inside any plane.
 
 ## Output
+
 One row per **plane**, because a failure has to name the plane it happened in.
 
 ```
@@ -76,7 +81,9 @@ $ bp project rename @codestyle style
 ```
 
 ## Examples
+
 ### The new name is taken
+
 Exit `2`. Nothing has been touched.
 
 ```json
@@ -84,6 +91,7 @@ Exit `2`. Nothing has been touched.
 ```
 
 ### A plane cannot be locked
+
 Exit `5`. The locks are all taken before anything moves, so a busy plane stops
 the rename before it starts rather than partway through.
 
@@ -92,13 +100,19 @@ the rename before it starts rather than partway through.
 ```
 
 ### A repair fails in one plane
-Exit `1`. The rows say which plane, and re-running converges.
+
+Exit `1`. The project itself has been renamed — `project.toml`'s `name` is
+written last, so reaching this error means it landed. What is left is per-plane,
+and the rows say which plane. Re-running the rename would now be a rename to the
+name it already holds; [`bp repair`](../plane/repair.md) in each named plane is
+the cure, and it is idempotent.
 
 ```json
-{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"The project directory has already moved; run bp repair -p auth-work to reconnect the plane."}
+{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"Fix what the rows report, then run bp repair in each plane they name."}
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the project and every holding plane are consistent |

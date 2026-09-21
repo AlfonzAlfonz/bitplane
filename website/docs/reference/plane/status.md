@@ -18,10 +18,12 @@ keeps none of them — so what it tells you cannot go stale. It is git's answer,
 not `bp`'s opinion.
 
 ## Arguments
+
 None. The plane comes from the current directory, or from `--plane`. See
 [how the current directory resolves](./show.md#how-the-current-directory-resolves).
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane to report on. |
@@ -29,6 +31,7 @@ None. The plane comes from the current directory, or from `--plane`. See
 Plus the [global flags](../global-flags.md#global-flags).
 
 ## Output
+
 One line per member, then the details for the ones that have any.
 
 ```
@@ -58,6 +61,7 @@ No fetch is performed. A stale remote-tracking ref can only make `ahead` too
 large, never too small.
 
 ## None of this is drift
+
 A worktree with uncommitted changes, untracked files, unpushed commits, a
 branch you switched, a rebase in progress — all of that is **ordinary use**, and
 `bp status` reports it at exit `0`.
@@ -79,7 +83,9 @@ here so it is not rediscovered as a bug.
 :::
 
 ## Examples
+
 ### A plane with work in it
+
 Exit `0`. Nothing here is a problem.
 
 ```
@@ -93,6 +99,7 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 ```
 
 ### A member whose worktree is gone
+
 Exit `3`. git has nothing to say about a directory that is not there, and that
 absence **is** a finding: `bp` owns the worktree's existence.
 
@@ -111,6 +118,7 @@ findings
 ```
 
 ### A detached HEAD
+
 Exit `0`. Detaching is ordinary use.
 
 ```
@@ -123,6 +131,7 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | every member answered, whatever it said |

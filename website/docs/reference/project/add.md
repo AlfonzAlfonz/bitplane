@@ -15,6 +15,7 @@ namespace, its config, and the branches `destroy` cleans up. Pointing at a
 checkout you already have is [`bp project adopt`](./adopt.md) instead.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<url>` | yes | Anything `git` can fetch from: `git@gitlab.com:signageos/codestyle.git`, `https://…`, `ssh://…`. |
@@ -24,6 +25,7 @@ for or forwards a credential — your credential helpers and `ssh-agent` do the
 work. **A private repo you cannot `git clone` by hand is one `bp` cannot use.**
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `--name <name>` | the last segment of the URL's path | The project's name, which is also its directory name. |
@@ -33,6 +35,7 @@ Plus the [global flags](../global-flags.md#global-flags).
 A name is lowercase `[a-z0-9][a-z0-9._-]*`, flat, and unique per host.
 
 ## What it builds
+
 ```
 <projects-dir>/<name>/
   project.toml
@@ -75,6 +78,7 @@ one after the first worktree.
 just handed you. It is set on **owned** source repos only.
 
 ## Output
+
 ```
 $ bp project add git@gitlab.com:signageos/codestyle.git
 ```
@@ -86,7 +90,9 @@ $ bp project add git@gitlab.com:signageos/codestyle.git
 ```
 
 ## Examples
+
 ### The default name is taken
+
 Exit `2`. Refused with a suggestion, never silently disambiguated — a generated
 default that renames itself behind your back is worse than an error naming the
 conflict.
@@ -102,6 +108,7 @@ Two commands, and that is correct: you supplied new information in between, so
 it is a second intent rather than a retry.
 
 ### The fetch fails
+
 Exit `1`. The **registration** is unwound; the **objects are kept**.
 
 ```json
@@ -115,6 +122,7 @@ directory simply is not a project** — nothing lists it, and
 [`bp doctor`](../plane/doctor.md#the-four-sweeps) reports it.
 
 ### The repo would land on a reserved path
+
 Exit `2`.
 
 ```json
@@ -122,6 +130,7 @@ Exit `2`.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the project is registered |

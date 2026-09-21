@@ -11,6 +11,7 @@ bp project fetch [<project>...]
 ```
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<project>...` | no | Which projects to fetch, as `@name` or `name`. **With none named, every registered project is taken in turn.** |
@@ -20,9 +21,11 @@ and `bp` writes nothing there. Naming one is not an error; it reports `nothing
 to fetch` and moves on.
 
 ## Flags
+
 Only the [global flags](../global-flags.md#global-flags).
 
 ## What it fetches
+
 ```sh
 git -C repo.git fetch --prune origin
 ```
@@ -48,6 +51,7 @@ directory guards both `project.toml` and every git command that writes to the
 source repo. Fetches of **different** projects never contend.
 
 ## Output
+
 One row per project.
 
 ```
@@ -60,7 +64,9 @@ $ bp project fetch
 ```
 
 ## Examples
+
 ### One project
+
 Exit `0`.
 
 ```
@@ -71,6 +77,7 @@ $ bp project fetch @api
 ```
 
 ### The forge is unreachable
+
 Exit `1`. Other projects still get their turn — a fan-out row is data, not an
 error.
 
@@ -79,17 +86,22 @@ $ bp project fetch
 ```
 ```
   @api        failed: could not fetch origin: Connection refused
-  @codestyle  fetched  up to date
+  @codestyle  fetched   up to date
+  @bitplane   -         nothing to fetch (adopted)
 ```
 ```json
-{"error":"fetch_failed","code":1,"message":"1 of 2 projects could not be fetched","problems":[{"subject":"@api","message":"could not fetch origin: Connection refused"}],"remedy":null}
+{"error":"fetch_failed","code":1,"message":"1 of 2 fetchable projects could not be fetched","problems":[{"subject":"@api","message":"could not fetch origin: Connection refused"}],"remedy":null}
 ```
+
+The count is over the projects there was something to fetch **for**. An adopted
+project is a row, never a denominator.
 
 `bp` never handles a credential. It shells out to git and lets your credential
 helpers and `ssh-agent` do the work, so an authentication failure here is the
 same one `git fetch` would give you by hand.
 
 ### No such project
+
 Exit `2`.
 
 ```json
@@ -97,6 +109,7 @@ Exit `2`.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | every named project is up to date |

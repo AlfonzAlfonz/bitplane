@@ -16,6 +16,7 @@ every path outside `bp` pointing at that repo must keep working.
 Adoption applies to projects only. There is no plane-level adoption.
 
 ## What `bp` will not do to an adopted repo
+
 This is the sharpest asymmetry in the design, and it is deliberate: **`bp` owns
 the refs and the config in a repo it built, and owns nothing in a repo it merely
 pointed at.**
@@ -32,6 +33,7 @@ With nothing stored, `bp` **cannot tell** whether a branch in your repo is one
 it created or one you have had for two years. So it touches none of them.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<path>` | yes | A git repository. Relative, absolute or `~`-prefixed; `bp` canonicalises it. |
@@ -41,6 +43,7 @@ the stored value: "whose home" is unanswerable when a project is read over SSH
 later.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `--name <name>` | the last segment of the path | The project's name, which is also its directory name. |
@@ -48,6 +51,7 @@ later.
 Plus the [global flags](../global-flags.md#global-flags).
 
 ## What it builds
+
 ```
 <projects-dir>/<name>/
   project.toml       source type = "adopted", path = <your checkout>
@@ -63,6 +67,7 @@ disagrees with its payload is a
 [`parse_error`](../refusals-and-waivers.md#parse_error).
 
 ## Output
+
 ```
 $ bp project adopt ~/projects/bitplane
 ```
@@ -74,7 +79,9 @@ $ bp project adopt ~/projects/bitplane
 ```
 
 ## Examples
+
 ### Your checkout is sitting on the branch a plane wants
+
 Exit `1`, at [`bp create`](../plane/create.md) time rather than here. Git
 refuses `worktree add` on a branch checked out in any worktree of the same repo,
 and `bp` reports it in its own words rather than passing git's message through.
@@ -87,6 +94,7 @@ This cannot happen for an owned project: a bare repo has no working tree, so it
 occupies nothing.
 
 ### The path is not a git repository
+
 Exit `2`.
 
 ```json
@@ -94,9 +102,11 @@ Exit `2`.
 ```
 
 ### The name is taken
+
 Exit `2`, [exactly as for `bp project add`](./add.md#the-default-name-is-taken).
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the project is registered |

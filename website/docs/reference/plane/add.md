@@ -17,6 +17,7 @@ worktrees **it** created, drops only **its own** entries, and leaves the plane
 exactly as it found it.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<member>:<branch>...` | yes, one or more | A [member](../member-syntax.md) and the branch its worktree goes on. |
@@ -27,6 +28,7 @@ depend on what you did in an unrelated worktree last week, which is worse than
 asking.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane to add to. |
@@ -41,6 +43,7 @@ exactly as it does on [`bp create`](./create.md#branch-intent), including the
 refusal of `--no-fetch` with the default intent.
 
 ## Output
+
 [One row per member added](../global-flags.md#how-a-fan-out-prints). Members already in the
 plane are not reprinted — `add` reports what it did.
 
@@ -54,7 +57,9 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 ```
 
 ## Examples
+
 ### The member is already in the plane
+
 Exit `2`. A plane holds at most one worktree per project, and there is no
 adoption magic: `add` will not quietly take over a listed member whose worktree
 has gone missing.
@@ -70,6 +75,7 @@ Two commands, deliberately. It is the same strictness `create` has, and it makes
 the removal visible instead of implied.
 
 ### Another `bp` holds the plane
+
 Exit `5`. `bp` tries the lock without blocking, then prints a line to stderr and
 blocks for up to 120 seconds before giving up.
 
@@ -100,6 +106,7 @@ refusal-free path honest: if `add` could put real work into a latched plane,
 the latch's promise that *nothing in here is yours* would become a trapdoor.
 
 ### The run aborts
+
 Exit `1`. The plane returns to its prior state.
 
 ```json
@@ -117,6 +124,7 @@ shows up as a finding on [`bp show`](./show.md), and
 already gone.
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | every member was added |

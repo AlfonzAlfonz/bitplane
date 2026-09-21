@@ -17,22 +17,26 @@ only cheap, discardable work, so throwing it away and running the command again
 is the repair.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<member>...` | yes, one or more | A [member](../member-syntax.md): `@name` for a registered project, a path for an ad-hoc member. May carry a `:branch` suffix. |
 
-A member with no branch — no suffix and no `-b` — lands on its **resolved
-default branch**, by the ladder on
-[`bp project show`](../project/show.md#the-default-branch-is-read-from-git-every-time).
-Only a member whose ladder bottoms out is
-[`branch_unspecified`](../refusals-and-waivers.md#usage-failures).
+Every member needs a branch, from its own suffix or from `-b`. A member with
+neither is [`branch_unspecified`](../refusals-and-waivers.md#usage-failures).
 
-[`bp add`](./add.md) is stricter: there, a branch is always required.
+Defaulting to each member's own default branch was considered and rejected: for
+an **adopted** project or an **ad-hoc member** that branch is the one the user's
+checkout is sitting on, so the convenience would resolve straight into
+[`branch_occupied`](../refusals-and-waivers.md#branch_occupied) for exactly the
+members it was meant to make easy. The default branch is the **base** a plane
+branch is cut from, not a branch to land on.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
-| `-b`, `--branch <branch>` | each member's default branch | The branch for every member that does not carry its own. Applied at this moment and **not remembered**: a plane has no branch. |
+| `-b`, `--branch <branch>` | — | The branch for every member that does not carry its own. Applied at this moment and **not remembered**: a plane has no branch. |
 | `--id <id>` | a generated `bp-<hex8>` | The plane id, which is also its directory name. |
 | `--new-branch` | — | The branch must not already exist. Fails if it does. |
 | `--existing-branch` | — | The branch must already exist. Fails if it does not. |
@@ -43,6 +47,7 @@ Plus the [global flags](../global-flags.md#global-flags). `create` takes no
 `--plane`: it is making one.
 
 ### Branch intent
+
 With neither `--new-branch` nor `--existing-branch`, `bp` **resolves**: it
 checks the branch out if it exists after the fetch and creates it otherwise, and
 the output says which happened. That is the right default and it is why the
@@ -54,6 +59,7 @@ because resolving against a stale source repo silently creates a new, unrelated
 branch. Pass `--new-branch` to say you meant a new one.
 
 ### The id
+
 A generated id is random hex with a `bp-` prefix, claimed by an atomic `mkdir`
 and retried on collision, five times at most. The `bp-` prefix is **reserved**
 for generated ids, so an id starting with it is
@@ -67,6 +73,7 @@ Ids are **not safe to cache**. A plane can be renamed, no alias to a former id
 is kept, and a stale reference is simply an error.
 
 ## Output
+
 The plane id and directory, then [one row per member](../global-flags.md#how-a-fan-out-prints)
 in the order you named them.
 
@@ -94,7 +101,9 @@ bp-7c1e0d44  ~/planes/bp-7c1e0d44
 ```
 
 ## Examples
+
 ### The id is already taken
+
 Exit `2`. The path is stat'd and classified, so the remedy names what is
 actually there.
 
@@ -106,6 +115,7 @@ $ bp create @api -b feat-login --id auth-work
 ```
 
 ### git is too old
+
 Exit `4`. Checked once, before anything is touched, so no plane is left
 half-built.
 
@@ -117,6 +127,7 @@ $ bp create @api -b feat-login
 ```
 
 ### A member fails partway through
+
 Exit `1`. Scheduling stops, every worktree this run created is unwound, the
 plane directory is removed, and the rows ride inside the error.
 
@@ -133,6 +144,7 @@ construction nothing in the abort window is yours yet. That force is scoped to
 this path and is never reused by [`bp destroy`](./destroy.md).
 
 ### Ctrl-C
+
 Exit `130`. The first interrupt stops scheduling, waits for the children already
 running, unwinds, and prints what it has. A second exits immediately and leaves
 whatever was in flight where it fell.
@@ -150,6 +162,7 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 ```
 
 ### A post-create script fails
+
 Exit `1`, and the plane is **kept**. Scripts run after the point of no return,
 so a failure there unwinds nothing — but exiting `0` would hide it.
 
@@ -158,16 +171,18 @@ so a failure there unwinds nothing — but exiting `0` would hide it.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the plane was built |
 | `1` | the run aborted, or a `post_worktree_create` script failed |
-| `2` | bad arguments, a taken or reserved id, or a branch intent that cannot be honoured |
+| `2` | bad arguments, a missing branch, a taken or reserved id, or a branch intent that cannot be honoured |
 | `4` | git is missing, unusable or older than 2.36 |
 | `5` | a lock could not be taken in time |
 | `130` | interrupted |
 
 ## What it writes
+
 In this order, and the order is the design:
 
 1. `mkdir <plane-dir>` — the claim. Atomic; `EEXIST` is fatal.

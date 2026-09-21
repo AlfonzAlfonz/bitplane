@@ -22,16 +22,19 @@ therefore **never** abbreviated to a bare verb.
 :::
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<project>` | yes | The project to remove, as `@name` or `name`. |
 
 ## Flags
+
 Only the [global flags](../global-flags.md#global-flags).
 
 There is no `--waive`. The one refusal this command raises cannot be waived.
 
 ## What it does
+
 1. Scan the planes directory for planes holding this project. If any do,
    **refuse**.
 2. Delete the project directory.
@@ -40,6 +43,7 @@ For an **adopted** project, step 2 deletes the project directory only. Your
 checkout is untouched — `bp` never owned it.
 
 ## `project_in_use` cannot be waived
+
 A waiver says *"I accept losing **this** work, which I am looking at."*
 Removing a project whose worktrees are live in some plane damages planes you did
 not mention and are not looking at, so there is no moment at which consenting to
@@ -53,6 +57,7 @@ An **incomplete** plane blocks removal too, for uniformity. Since
 clearing it is one command.
 
 ## Output
+
 ```
 $ bp project rm @codestyle
 ```
@@ -63,7 +68,9 @@ removed @codestyle
 ```
 
 ## Examples
+
 ### A plane still holds it
+
 Exit `1`. The blocking planes are always listed **by id** — the entire value of
 an unwaivable refusal is that the way out is obvious.
 
@@ -75,6 +82,7 @@ $ bp project rm @codestyle
 ```
 
 ### An incomplete plane holds it
+
 Exit `1`.
 
 ```json
@@ -82,6 +90,7 @@ Exit `1`.
 ```
 
 ### No such project
+
 Exit `2`.
 
 ```json
@@ -89,6 +98,7 @@ Exit `2`.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the project is gone |

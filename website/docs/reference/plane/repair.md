@@ -22,6 +22,7 @@ all three:
 healthy plane does nothing and says so.
 
 ## Why a worktree cannot just be moved
+
 A plain `mv` of a worktree inside its plane leaves git reporting the worktree at
 its **old** path and marking it `prunable` — git's word for "the directory is
 gone". That is a staleness signal, so a moved worktree looks like garbage at a
@@ -30,6 +31,7 @@ path where nothing can find your work to veto on.
 The move is therefore not a free act. `repair` is what makes it a supported one.
 
 ## Arguments
+
 None. The plane comes from the current directory, or from `--plane`.
 
 Discovery has **no planes-directory constraint** — a plane found outside the
@@ -37,6 +39,7 @@ configured planes directory still resolves. Refusing it would make `repair`
 impossible to aim at the one plane that most needs it.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane to repair. |
@@ -44,6 +47,7 @@ impossible to aim at the one plane that most needs it.
 Plus the [global flags](../global-flags.md#global-flags).
 
 ## What it does
+
 1. **Scan the plane directory** for worktrees.
 2. `git worktree repair` on each, one invocation per source repo.
 3. Rewrite `plane.toml`'s member keys to where the worktrees actually are.
@@ -61,6 +65,7 @@ A directory in the plane that no member names and that is not a worktree is
 ignored, not reported. It is almost always your own scratch space.
 
 ## Output
+
 ```
 $ bp repair
 ```
@@ -86,7 +91,9 @@ nothing to repair
 ```
 
 ## Examples
+
 ### A member's worktree is missing entirely
+
 Exit `3` — the command succeeded and reported a finding.
 
 ```
@@ -100,6 +107,7 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 ```
 
 ### The plane was never finished being created
+
 Exit `1`.
 
 ```json
@@ -107,6 +115,7 @@ Exit `1`.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | every worktree is connected |

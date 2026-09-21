@@ -16,9 +16,11 @@ re-checked against what survived, and the members already gone are reported
 `already gone`.
 
 ## Arguments
+
 None. The plane comes from the current directory, or from `--plane`.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane to destroy. |
@@ -31,6 +33,7 @@ There is **no `--force`**. Every reason is waived individually, so you cannot
 accidentally override the one you did not mean to.
 
 ## What it does
+
 1. Collect **every** refusal across **every** member and return them in one
    error. A half-destroyed plane is worse than a refused one.
 2. Run `pre_worktree_remove` scripts as one sequential pass in `plane.toml`
@@ -53,6 +56,7 @@ notes file — goes with the directory. The plane directory is yours between
 `create` and `destroy`, and `destroy` is the end of that.
 
 ## Output
+
 ```
 $ bp destroy
 ```
@@ -67,7 +71,9 @@ destroyed bp-a3f9c2e1
 ```
 
 ## Examples
+
 ### Refused
+
 Exit `1`, and **nothing has been touched**. Every reason across every member
 comes back at once, so one re-run with the right waivers finishes the job.
 
@@ -81,6 +87,7 @@ $ bp destroy
 The remedy names exactly the reasons that were raised, so it can be pasted.
 
 ### A plane that was never finished being created
+
 `destroy` is the **only** command that does not refuse on a latched plane, and
 it runs no refusal checks there at all. No script ever ran, so there are no
 untracked files; the branches are seconds old, so nothing is uncommitted or
@@ -100,6 +107,7 @@ destroyed auth-work (create had never completed)
 That property is why [`bp add` never sets the latch](./add.md#the-run-aborts).
 
 ### A pre-remove script blocks
+
 Exit `1`, and nothing is removed.
 
 ```json
@@ -114,6 +122,7 @@ with nothing removed. That is the accepted cost of letting one script both veto
 and tear down; the unwind is yours.
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the plane is gone |

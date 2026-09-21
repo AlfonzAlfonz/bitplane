@@ -15,9 +15,11 @@ Like [`bp list`](./list.md), `show` is a **read**: no lock, no file written,
 nothing repaired.
 
 ## Arguments
+
 None. The plane comes from the current directory, or from `--plane`.
 
 ### How the current directory resolves
+
 `bp` canonicalises the working directory — following symlinks, so a worktree
 reached through one resolves to its real plane — then walks up to the filesystem
 root. The **innermost** `plane.toml` wins, which is the only answer that can be
@@ -37,6 +39,7 @@ planes directory still resolves; being outside is a finding, not a reason to
 fail to find it.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane to show. |
@@ -45,6 +48,7 @@ fail to find it.
 Plus the [global flags](../global-flags.md#global-flags).
 
 ## Output
+
 ```
 $ bp show
 ```
@@ -66,7 +70,9 @@ no branch, and nothing derives one.
 A member whose `HEAD` is detached shows `(detached)` in place of a branch.
 
 ## Examples
+
 ### There is no plane here
+
 Exit `2`.
 
 ```
@@ -77,6 +83,7 @@ $ bp show
 ```
 
 ### The plane has a finding
+
 Exit `3`.
 
 ```
@@ -100,6 +107,7 @@ findings
 Every finding names the command that fixes it. `show` reports and never repairs.
 
 ### The plane was moved outside `bp`
+
 Exit `3`. The directory name is the plane's identity; `plane.toml`'s `id` is a
 self-check, and a disagreement is a positive signal rather than a problem to
 paper over.
@@ -120,6 +128,7 @@ findings
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the plane is healthy |

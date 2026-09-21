@@ -24,6 +24,7 @@ removal is **never** spelled as a bare verb.
 :::
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<member>...` | yes, one or more | A [member](../member-syntax.md) of this plane. No branch suffix — a member is already on a branch. |
@@ -34,6 +35,7 @@ member's worktree does not name it: a path resolves to a **plane**, never to a
 member.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane to remove from. |
@@ -43,6 +45,7 @@ member.
 Plus the [global flags](../global-flags.md#global-flags).
 
 ## What it does
+
 1. Collect **every** refusal across **every** named member, and stop if there
    are any.
 2. Run `pre_worktree_remove` scripts, sequentially. A non-zero exit aborts and
@@ -56,6 +59,7 @@ member with no worktree — visible, and converging on a re-run — rather than 
 unlisted worktree nothing can see.
 
 ### Branch deletion
+
 For an **owned** project, `rm` deletes the branch the worktree is **actually on
 at that moment**. Nothing records the branch it was created on, so no other
 answer is available.
@@ -70,6 +74,7 @@ two years in a repo it merely pointed at, and it owns nothing there. The output
 says so per member.
 
 ## Output
+
 ```
 $ bp rm @docs
 ```
@@ -91,7 +96,9 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 ```
 
 ## Examples
+
 ### Refused
+
 Exit `1`, and nothing has been touched. See
 [refusals](../refusals-and-waivers.md#refusals) for all five reasons.
 
@@ -113,11 +120,14 @@ and points at the one verb that clears it.
 {"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
 ```
 
-Refusing here is what keeps [`bp destroy`](./destroy.md#a-plane-that-was-never-finished-being-created)'s
-refusal-free path honest: if `rm` could put real work into a latched plane,
-the latch's promise that *nothing in here is yours* would become a trapdoor.
+Whittling a latched plane down one member at a time leaves a latched plane,
+still headed for deletion, with a shorter membership list — meaningless work.
+[`bp destroy`](./destroy.md#a-plane-that-was-never-finished-being-created) does
+the whole thing in one command and with no refusal checks at all, because on a
+latched plane every refusal reason is structurally impossible.
 
 ### Waived
+
 ```
 $ bp rm @api @web --waive uncommitted --waive untracked
 ```
@@ -131,6 +141,7 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 The waiver is echoed, so a forced removal is visible in a transcript.
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | every named member is out of the plane |

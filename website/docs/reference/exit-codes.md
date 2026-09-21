@@ -18,6 +18,7 @@ and every code below is reachable from a worked example on a command page.
 | `130` | interrupted | `128 + SIGINT`. The shell's convention, not `bp`'s. | [`bp create`](./plane/create.md#ctrl-c) |
 
 ## Why these three are separate
+
 `1`, `2` and `5` all mean "it did not happen", and a script has to tell them
 apart to know what to do:
 
@@ -29,13 +30,17 @@ apart to know what to do:
   something has to change first, and the envelope's `remedy` usually says what.
 
 ## `3` is a success, and it is not about your work
+
 `bp` exits `3` when the command **worked** and there is a finding on a plane's
 health. The result is on stdout; `3` is the flag saying "look at it".
 
 **Drift is never your uncommitted work.** A worktree with unstaged changes, a
 branch you switched, a rebase in progress — all of that is ordinary use, and
-`bp status` reports it at exit `0`. `bp` owns a worktree's existence and
-location, so a finding is about one of those:
+`bp status` reports it at exit `0`.
+
+A finding is one of two things: something `bp` owns is not as recorded, or a
+file `bp` needs could not be read. `bp` owns a worktree's **existence and
+location**, so the first kind is always about one of those:
 
 | finding | what it means |
 | --- | --- |
@@ -44,6 +49,12 @@ location, so a finding is about one of those:
 | source repo missing | the repo a member is a worktree of is gone |
 | id mismatch | `plane.toml`'s `id` disagrees with the directory name — the plane was moved outside `bp` |
 | prunable | git reports the worktree at a path that no longer exists |
+
+The second kind is one row:
+
+| finding | what it means |
+| --- | --- |
+| unreadable | a `plane.toml` or `project.toml` did not parse, and the listing skipped past it |
 
 The reads exit `3`: [`bp list`](./plane/list.md),
 [`bp show`](./plane/show.md), [`bp status`](./plane/status.md),
@@ -59,6 +70,7 @@ exit `3`. `bp show` and `bp project show` have exactly one file to read, so
 failing to read it is exit `1`.
 
 ## `4` is checked once, before anything is touched
+
 Every command verifies git before it does any work, so `4` never leaves a plane
 half-built. `bp` requires **git 2.36 or newer**, because
 `git worktree list --porcelain -z` — the only form that handles paths and lock
@@ -74,6 +86,7 @@ Four failures produce it, and their messages are fixed:
 | `git_too_old` | `git 2.35.9 is too old; bitplane requires git 2.36 or newer` |
 
 ## `130`, and what Ctrl-C actually does
+
 SIGINT reaches the whole process group, so an in-flight `git worktree add` gets
 it too. `bp` cannot protect its children; all it controls is what it records and
 prints.

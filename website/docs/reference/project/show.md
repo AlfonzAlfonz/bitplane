@@ -14,14 +14,17 @@ bp project show <project>
 A **read**: no lock, no file written, nothing repaired.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<project>` | yes | `@name` or `name`. The sigil is optional here, because no path is accepted in this slot. |
 
 ## Flags
+
 Only the [global flags](../global-flags.md#global-flags).
 
 ## Output
+
 ```
 $ bp project show @codestyle
 ```
@@ -44,6 +47,7 @@ pre_worktree_remove    stop-stack
 ```
 
 ### The resolved per-point sequence
+
 The last two lines are the point of this command. Scripts declare their bindings
 as toggles on the script, so *"what runs at `post_worktree_create`, in what
 order"* is not answerable from any single place in `project.toml` — you would
@@ -58,24 +62,31 @@ A script bound to no point — `reset-db` above — is legal and useful. It is
 runnable with [`bp run`](../plane/run.md) like any other.
 
 ### The default branch is read from git, every time
-`default` is the branch a new worktree lands on when you do not name one. It is
-**not a stored field**; it is resolved on every call, by this ladder:
 
-1. the branch you asked for on the command line
-2. `refs/remotes/origin/HEAD` — settable with `git remote set-head origin <branch>`, durable across fetches
-3. the source repo's own `HEAD`, for an adopted project with no remote
-4. otherwise, unspecified — and a `create` without a branch is an error
+`default` is the **base** a new plane branch is cut from: `bp create @api -b
+feat-login` creates `feat-login` starting at it. It is not a branch a worktree
+lands on — [`bp create`](../plane/create.md) and [`bp add`](../plane/add.md)
+both make you name the branch you want.
+
+It is **not a stored field**; it is resolved on every call, by this ladder:
+
+1. `refs/remotes/origin/HEAD` — settable with `git remote set-head origin <branch>`, durable across fetches
+2. the source repo's own `HEAD`, for an adopted project with no remote
+3. otherwise, unspecified — and creating a **new** branch in that project is an error
 
 A stored copy would be a second source of truth that goes silently stale when a
 forge renames its default branch.
 
 ### The last fetch is derived, not recorded
+
 `fetched` is the mtime of `repo.git/FETCH_HEAD`, which git writes on every
 fetch. Recording it in `project.toml` would make every fetch do a
 read-modify-write under the project lock, for a field nothing gates on.
 
 ## Examples
+
 ### An adopted project
+
 Exit `0`. There is nothing to fetch, and `bp` says so rather than showing an
 empty field.
 
@@ -95,6 +106,7 @@ scripts
 ```
 
 ### A bad key in `project.toml`
+
 Exit `1`. A misspelled toggle in a hand-written file fails loudly here and at
 [`bp doctor`](../plane/doctor.md), not only when a plane is created and your
 worktree comes out subtly wrong.
@@ -104,6 +116,7 @@ worktree comes out subtly wrong.
 ```
 
 ### No such project
+
 Exit `2`.
 
 ```json
@@ -111,6 +124,7 @@ Exit `2`.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the project was read |

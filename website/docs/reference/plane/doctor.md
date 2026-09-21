@@ -19,9 +19,11 @@ and both data directories and reports everything `bp` has a claim on.
 every finding names the command that fixes it. It takes no locks.
 
 ## Arguments
+
 None.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `--sweep-source-repos` | off | Ask each source repo what worktrees it thinks it has. One git invocation per repo. |
@@ -33,6 +35,7 @@ The source-repo sweep is **off by default** because it is `O(projects)` git
 invocations. Everything else `doctor` does is filesystem-only.
 
 ## The four sweeps
+
 | sweep | what it finds | needs `--sweep-source-repos` |
 | --- | --- | --- |
 | plane directories holding `.bitplane/` but no `plane.toml` | the window between the `mkdir` that claims a plane and the first write into it | no |
@@ -50,6 +53,7 @@ behind with nothing recording it. `doctor` lists it. `bp` never deletes it on
 its own judgement.
 
 ## Output
+
 ```
 $ bp doctor
 ```
@@ -70,7 +74,9 @@ findings
 ```
 
 ## Examples
+
 ### Nothing is wrong
+
 Exit `0`.
 
 ```
@@ -84,6 +90,7 @@ no findings
 ```
 
 ### A latched plane
+
 Exit `3`. Reported as **create never completed, with how long ago it started**,
 not merely as broken — which is the difference between confidently discarding a
 remnant and wondering whether something is still running.
@@ -101,6 +108,7 @@ findings
 ```
 
 ### An orphaned branch
+
 Exit `3`. Needs the sweep.
 
 ```
@@ -119,6 +127,7 @@ findings
 disposable is a judgement about your work, and that is not `bp`'s to make.
 
 ### `--footprint`
+
 Exit `0`. This is the uninstall answer: everything `bp` owns, plus the only
 marks it leaves outside its own directories.
 
@@ -139,6 +148,7 @@ Those administrative entries are git's record of a worktree in an **adopted** or
 **ad-hoc** repo. Destroying the plane that owns each one removes it.
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | nothing to report |

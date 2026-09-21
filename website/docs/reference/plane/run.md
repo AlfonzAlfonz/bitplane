@@ -15,12 +15,14 @@ be bound to a lifecycle point, to both, or to neither — and either way it can 
 run by hand. `bp run @api install` reads like `npm run install` on purpose.
 
 ## Why this exists
+
 Re-running a failed script by hand means reconstructing eight environment
 variables, the project's `bin/` entry on `PATH`, and the right working
 directory. That is not something you will get right, and getting it wrong
 silently is worse than not retrying at all.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<project>` | yes | The project whose scripts to run, as `@name` or `name`. Must be a member of the plane. |
@@ -37,6 +39,7 @@ therefore no scripts. `bp run` against one is an error, because `bp run` takes a
 project.
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane's worktree to run in. |
@@ -44,6 +47,7 @@ project.
 Plus the [global flags](../global-flags.md#global-flags).
 
 ## Execution
+
 Scripts run **sequentially**, in the order named on the command line, and stop
 at the first non-zero exit.
 
@@ -57,6 +61,7 @@ at the first non-zero exit.
   hang you can see.
 
 ### Output
+
 stdout and stderr are **merged and streamed live to `bp`'s stderr**, and tee'd
 to a log at
 `<plane-dir>/.bitplane/logs/<YYYYMMDDTHHMMSSZ>-<project>-<script>.log`.
@@ -71,6 +76,7 @@ writes at a time, so there is no interleaving and no per-line prefixing.
 the plane directory.
 
 ### Environment
+
 Eight variables, on top of everything you already had:
 
 | variable | value |
@@ -94,12 +100,15 @@ these back either — see [the plane
 argument](../global-flags.md#the-plane-is-resolved-from-the-current-directory).
 
 ## Idempotency
+
 `bp run` is **not idempotent and does not pretend to be**. Re-running
 `ln -s` fails the second time. That failure is yours to own, exactly as the
 first one was.
 
 ## Examples
+
 ### Running a script
+
 Exit `0`.
 
 ```
@@ -113,6 +122,7 @@ The script's own output went to stderr as it ran, and to
 `~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log`.
 
 ### Several scripts, in the order you named them
+
 ```
 $ bp run @api link-alfonz install
 ```
@@ -125,6 +135,7 @@ Request order, not declaration order — unlike a lifecycle point, you named
 these, so that is the order you meant.
 
 ### A script fails
+
 Exit `1`. Later scripts are not run.
 
 ```json
@@ -132,6 +143,7 @@ Exit `1`. Later scripts are not run.
 ```
 
 ### No such script
+
 Exit `2`.
 
 ```json
@@ -139,6 +151,7 @@ Exit `2`.
 ```
 
 ### The project is not in this plane
+
 Exit `2`.
 
 ```json
@@ -146,6 +159,7 @@ Exit `2`.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | every named script exited `0` |

@@ -8,6 +8,7 @@ Every way `bp` declines to do something, the exact words it uses, and — where
 one exists at all — the waiver that answers it.
 
 ## The error envelope
+
 Every failure is one line of JSON on **stderr**, whether or not you passed
 `--json`. stdout stays clean for results.
 
@@ -31,12 +32,14 @@ The tables below give `error`, `message` and `remedy` verbatim. Values that vary
 are shown as they would appear for a concrete case.
 
 ## Refusals
+
 A **refusal** is `bp` declining to destroy work. `bp destroy` and `bp rm` check
 **every** member before touching anything and return every reason at once: a
 half-destroyed plane is worse than a refused one. Exit code is `1`, and nothing
 has been done.
 
 ### The five waivable reasons
+
 | reason | problem message | checked how |
 | --- | --- | --- |
 | `uncommitted` | `feat-login has uncommitted changes` | git's own status, tracked files only |
@@ -61,6 +64,7 @@ at all*. Folding it into `uncommitted` would let a waiver granted for a diff you
 looked at silently authorise deleting a directory nobody looked at.
 
 ### What a refusal prints
+
 ```
 $ bp destroy
 ```
@@ -72,6 +76,7 @@ The remedy names **exactly the reasons that were raised**, in the order of the
 table above, so it can be pasted. It never names a reason that did not come up.
 
 ### `--waive`
+
 ```
 --waive <reason>
 ```
@@ -92,10 +97,12 @@ was waived, so a forced destruction is visible in a transcript.
 Waiving a reason that was not raised is not an error.
 
 ### The unwaivable ones
+
 A waiver says *"I accept losing **this** work, which I am looking at."* Where
 that sentence cannot honestly be said, there is no waiver.
 
 #### `project_in_use`
+
 Removing a project whose worktrees are live in some plane damages planes you did
 not mention and are not looking at, so no consent given in that moment is
 informed.
@@ -108,6 +115,7 @@ The whole value of an unwaivable refusal is that the way out is obvious, so the
 blocking planes are always listed **by id**.
 
 #### `plane_incomplete`
+
 A plane that was claimed and never finished being created. Repairing or running
 scripts in one is meaningless work on a thing headed for deletion.
 
@@ -131,6 +139,7 @@ holding the project blocks the removal, but the error that says so is
 [`project_in_use`](#project_in_use), which names the plane.
 
 #### `branch_occupied`
+
 Git refuses `worktree add` on a branch that is checked out in any worktree of
 the same repo. `bp` reports it in its own words rather than passing git's
 message through.
@@ -144,6 +153,7 @@ source repo is your own checkout and occupies whatever branch you are sitting
 on. A bitplane-owned source repo is bare and occupies nothing.
 
 #### `script_blocked`
+
 A `pre_worktree_remove` script exited non-zero. The pass aborts and **nothing is
 removed**.
 
@@ -157,6 +167,7 @@ every command that runs scripts, so a `project.toml` can never make a plane
 undestroyable.
 
 ## Usage failures
+
 Exit code `2`. The request was malformed, or what it asked to create already
 exists. Re-running identically will never help.
 
@@ -187,6 +198,7 @@ remedy names what is actually there rather than saying "already in use" and
 leaving you to look.
 
 ### `branch_intent_requires_fetch`
+
 Refused at request validation, before anything is touched. The default branch
 intent creates a branch when it does not resolve, so
 `bp add @api:colleagues-branch --no-fetch` against a stale source repo would
@@ -194,6 +206,7 @@ silently create a **new, unrelated** branch of that name — and you would find
 out at push time, having already committed.
 
 ## Typed failures
+
 Exit code `1`. The operation ran and did not succeed.
 
 | `error` | `message` | `remedy` |
@@ -203,10 +216,17 @@ Exit code `1`. The operation ran and did not succeed.
 | `add_aborted` | `add did not finish; bp-a3f9c2e1 is unchanged` | `Fix what the rows report, then run bp add again.` |
 | `project_add_aborted` | `@codestyle was not registered` | `The objects fetched so far were kept at ~/.local/share/bitplane/projects/codestyle/repo.git; re-running bp project add will reuse them.` |
 | `script_failed` | `install exited 1 in @api; the plane was created` | `See the log, fix the cause, then run bp run @api install.` |
+| `script_failed` | `install exited 1 in @api` | `See the log, fix the cause, then run bp run @api install.` |
 | `parse_error` | `~/.local/share/bitplane/projects/api/project.toml: unknown key "post_worktree_created" in [scripts.install]` | `Legal keys are argv, shell, post_worktree_create and pre_worktree_remove.` |
-| `fetch_failed` | `1 of 2 projects could not be fetched` | none |
-| `repair_failed` | `@style was renamed; 1 of 2 planes could not be repaired` | `The project directory has already moved; run bp repair -p auth-work to reconnect the plane.` |
+| `fetch_failed` | `1 of 2 fetchable projects could not be fetched` | none |
+| `repair_failed` | `@style was renamed; 1 of 2 planes could not be repaired` | `Fix what the rows report, then run bp repair in each plane they name.` |
 | `io` | `~/planes/bp-a3f9c2e1/plane.toml: permission denied` | none |
+
+`repair_failed` is raised by [`bp rename`](./plane/rename.md),
+[`bp repair`](./plane/repair.md) and [`bp project rename`](./project/rename.md)
+alike. Its `message` names what did land before the repairs were attempted; its
+rows name the planes that still need one, and `bp repair` is idempotent, so
+running it there is always safe.
 
 A failed `create` or `add` carries its per-member rows **inside** the error, so
 you still see which member failed and whether its cleanup worked. `create` is
@@ -215,10 +235,13 @@ all-or-nothing: it either made a plane or it did not.
 `script_failed` is a `post_worktree_create` script, or one named on
 [`bp run`](./plane/run.md). It unwinds nothing — by the time it runs the plane
 is complete and usable — but `bp create` exiting `0` would hide a real failure.
-The `remedy` is the same wherever it is raised; the `message` is what says
-whether a plane was built.
+The `remedy` is the same wherever it is raised — re-running the script is the
+only move either way. The `message` is what differs: from `bp create` or
+`bp add` it says the plane was built, and from [`bp run`](./plane/run.md) there
+is no plane to report on, so it says only what failed.
 
 ### `parse_error`
+
 An unrecognised key in `plane.toml` or `project.toml` is an error, not a shrug.
 `version = 1` owns schema evolution, so silence would buy nothing and cost you a
 script that never runs with no trace of why. The message always names the
@@ -234,6 +257,7 @@ error. The scan continues, and nothing is auto-repaired: a file `bp` cannot read
 is a file it has no business rewriting.
 
 ## Prerequisite and lock failures
+
 | `error` | `code` | `message` | `remedy` |
 | --- | --- | --- | --- |
 | `git_missing` | `4` | `git was not found on PATH; bitplane requires git 2.36 or newer` | `Install git 2.36 or newer and put it on PATH.` |

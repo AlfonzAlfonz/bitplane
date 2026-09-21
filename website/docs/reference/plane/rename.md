@@ -17,6 +17,7 @@ nothing outside `bp` may store a plane id and expect it to resolve later.
 `rename` **converges**: interrupt it and run it again, and it finishes.
 
 ## Arguments
+
 | argument | required | what it is |
 | --- | --- | --- |
 | `<new-id>` | yes | The plane's new id, which becomes its directory name. |
@@ -26,6 +27,7 @@ not start with the reserved `bp-` prefix. A new id that is already a plane is
 [`plane_id_in_use`](../refusals-and-waivers.md#usage-failures).
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `-p`, `--plane <id>` | the plane containing the current directory | Which plane to rename. |
@@ -33,6 +35,7 @@ not start with the reserved `bp-` prefix. A new id that is already a plane is
 Plus the [global flags](../global-flags.md#global-flags).
 
 ## What it does
+
 1. `mv` the plane directory — a single atomic `rename(2)`, so the plane is never
    findable under neither name.
 2. `git worktree repair` per source repo, taking every new path in one
@@ -57,6 +60,7 @@ The directory moves out from under your shell. `cd` to the new path afterwards;
 :::
 
 ## Output
+
 ```
 $ bp rename auth-work
 ```
@@ -70,7 +74,9 @@ bp-a3f9c2e1 is now auth-work
 ```
 
 ## Examples
+
 ### The plane was never finished being created
+
 Exit `1`. Renaming a plane headed for deletion is meaningless work.
 
 ```json
@@ -78,6 +84,7 @@ Exit `1`. Renaming a plane headed for deletion is meaningless work.
 ```
 
 ### The new id is taken
+
 Exit `2`.
 
 ```json
@@ -85,6 +92,7 @@ Exit `2`.
 ```
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | the plane is at its new id |

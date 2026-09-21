@@ -10,6 +10,7 @@ the same precedence, and prints a fan-out the same way. Nothing here is repeated
 on the individual command pages; they link back to it.
 
 ## Global flags
+
 | flag | value | what it does |
 | --- | --- | --- |
 | `--planes-dir <path>` | a directory | Where plane directories live for this invocation. |
@@ -30,6 +31,7 @@ and only the local engine exists today; a flag for a choice with one option woul
 be documenting a feature that is not there.
 
 ## The plane is resolved from the current directory
+
 Every command that acts on an **existing** plane takes that plane from the
 current directory: `bp` canonicalises the working directory and walks up to the
 filesystem root, and the innermost `plane.toml` wins. A plane found outside the
@@ -58,6 +60,7 @@ make `bp status` report a plane you are not standing in, and since a plane id is
 mutable it could resolve to a *different* plane that has since taken the name.
 
 ## Directory resolution
+
 Two directories matter, and both resolve by **flag > environment > config >
 default**.
 
@@ -80,6 +83,7 @@ working trees and is the one path you type daily;
 
 ```toml
 # $XDG_CONFIG_HOME/bitplane/config.toml
+
 version = 1
 planes_dir = "~/work/planes"
 ```
@@ -88,6 +92,7 @@ A missing config file is not an error. An unknown key in one is
 [`parse_error`](./refusals-and-waivers.md#parse_error).
 
 ## How a fan-out prints
+
 Every command that touches more than one member prints a header line, then one
 indented row per member, in `plane.toml` order:
 
@@ -122,6 +127,7 @@ succeeded print four rows, because those rows are the repair instruction when
 some of them did not.
 
 ## `--json`
+
 `--json` writes the machine response to stdout as a single JSON value and
 suppresses the human rendering. The exit code is unchanged.
 
@@ -135,6 +141,7 @@ guarantee the two disagree. What is fixed, and is a contract:
 - The envelope's `code` field is the number the process exits with.
 
 ## Environment variables
+
 `bp` reads three:
 
 | variable | what it sets |

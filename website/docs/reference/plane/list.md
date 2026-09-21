@@ -15,9 +15,11 @@ That is what makes it safe to run from a script, from a shell prompt, or in a
 loop.
 
 ## Arguments
+
 None. `list` reads the [planes directory](../global-flags.md#directory-resolution).
 
 ## Flags
+
 | flag | default | what it does |
 | --- | --- | --- |
 | `--health <level>` | `cheap` | How hard to look. `none`, `cheap` or `full`. |
@@ -25,6 +27,7 @@ None. `list` reads the [planes directory](../global-flags.md#directory-resolutio
 Plus the [global flags](../global-flags.md#global-flags).
 
 ### Health levels
+
 | level | cost | what it finds |
 | --- | --- | --- |
 | `none` | one directory listing, one small file per plane | nothing — just membership |
@@ -37,6 +40,7 @@ at `<source-repo>/worktrees/<name>/`, whose `HEAD` is a one-line file, so `bp`
 reads real branches without starting a process.
 
 ## What counts as a plane
+
 **A plane is exactly a directory containing `plane.toml`.** A directory in the
 planes directory without one is silently skipped, so an unrelated directory
 dropped in there is ignored rather than being an error.
@@ -47,6 +51,7 @@ aborted by one bad file, and nothing is auto-repaired: a file `bp` cannot read
 is a file it has no business rewriting.
 
 ## Output
+
 One block per plane: the id, its directory, when it was created, then its
 members.
 
@@ -70,7 +75,9 @@ NFS, older ext4, or a plane moved across filesystems — and nothing depends on
 it.
 
 ## Examples
+
 ### Everything is fine
+
 Exit `0`.
 
 ```
@@ -85,6 +92,7 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1  created 2026-09-21
 No planes at all is also exit `0`, with nothing on stdout.
 
 ### Something has drifted
+
 Exit `3`. The command **worked**; `3` says look at what it found.
 
 ```
@@ -108,6 +116,7 @@ worked and since lost a worktree. That is what makes it safe to discard with
 [`bp destroy`](./destroy.md#a-plane-that-was-never-finished-being-created) without a single refusal check.
 
 ## Exit codes
+
 | code | when |
 | --- | --- |
 | `0` | every plane is healthy |
