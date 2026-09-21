@@ -4,13 +4,111 @@ title: bp project rename
 
 # `bp project rename`
 
-Give a project a new name, moving its project directory and rewriting its entry.
+Give a project a different name, and fix every plane that holds it.
 
-Arguments, flags, human-readable output and exit code all land here.
+```
+bp project rename <project> <new-name>
+```
 
-:::note[Stub]
+This is the **one operation in the tool that mutates many planes at once**.
+Moving the project directory breaks the gitdir pointer of every member worktree
+derived from it, so the sweep is unavoidable.
 
-This page is a placeholder. The navigation is complete before the prose is,
-so the shape of these docs can be argued with while arguing is still cheap.
+`rename` **converges**: interrupt it and run it again, and it finishes.
 
-:::
+## Arguments
+| argument | required | what it is |
+| --- | --- | --- |
+| `<project>` | yes | The project to rename, as `@name` or `name`. |
+| `<new-name>` | yes | Its new name, which is also its new directory name. |
+
+A name is lowercase `[a-z0-9][a-z0-9._-]*`, flat, and unique per host. A new
+name already in use is
+[`project_name_taken`](../refusals-and-waivers.md#usage-failures).
+
+## Flags
+Only the [global flags](../global-flags.md#global-flags).
+
+## What it does
+1. **Acquire every holding plane's lock, then the project lock.** Plane before
+   project, never the reverse — that ordering is what makes a deadlock cycle
+   unconstructible.
+2. `mv` the project directory.
+3. `git worktree repair` per plane.
+4. Rewrite each `plane.toml`'s member value.
+5. Rewrite `project.toml`'s `name` **last**.
+
+Holders are found by scanning the planes directory, because nothing maps a
+project to its planes and nothing should: an index would be a cache of something
+the filesystem already answers.
+
+`name` is written last for the same reason [`bp rename`](../plane/rename.md)
+writes `id` last. `project.toml`'s `name` is an **integrity check**, not the
+authority — the directory name wins — so a disagreement is a reliable "this
+rename is unfinished" signal, and re-running converges.
+
+### Layout is not recomputed
+Existing planes keep the subdirectories they were built with. A worktree's path
+inside a plane derives from the project **source**, once, at create time — and
+the source has not changed here. Renaming `@codestyle` to `@style` does not move
+`signageos/codestyle` inside any plane.
+
+## Output
+One row per **plane**, because a failure has to name the plane it happened in.
+
+```
+$ bp project rename @codestyle style
+```
+```
+@codestyle is now @style
+
+  bp-a3f9c2e1  repaired  1 member
+  auth-work    repaired  1 member
+```
+
+A project no plane holds renames with no rows:
+
+```
+$ bp project rename @codestyle style
+```
+```
+@codestyle is now @style
+```
+
+## Examples
+### The new name is taken
+Exit `2`. Nothing has been touched.
+
+```json
+{"error":"project_name_taken","code":2,"message":"style is already a project","problems":[],"remedy":"Choose another name, or rename that project first."}
+```
+
+### A plane cannot be locked
+Exit `5`. The locks are all taken before anything moves, so a busy plane stops
+the rename before it starts rather than partway through.
+
+```json
+{"error":"lock_timeout","code":5,"message":"timed out waiting for the lock on ~/planes/auth-work/.bitplane/lock","problems":[{"subject":"~/planes/auth-work/.bitplane/lock","message":"is locked by another process"}],"remedy":"Another bitplane process holds it; retry once that one finishes."}
+```
+
+### A repair fails in one plane
+Exit `1`. The rows say which plane, and re-running converges.
+
+```json
+{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"Fix what the rows report, then run bp project rename @style style again."}
+```
+
+## Exit codes
+| code | when |
+| --- | --- |
+| `0` | the project and every holding plane are consistent |
+| `1` | the move or a repair failed |
+| `2` | bad arguments, an invalid or taken name, or no such project |
+| `4` | git is missing, unusable or older than 2.36 |
+| `5` | a lock could not be taken in time |
+| `130` | interrupted — re-run to converge |
+
+## See also
+
+- [`bp rename`](../plane/rename.md) — renaming a **plane**
+- [`bp repair`](../plane/repair.md) — the same primitive, aimed at one plane

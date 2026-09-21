@@ -4,13 +4,134 @@ title: bp project add
 
 # `bp project add`
 
-Register a project from a URL, creating the bare source repo bitplane will own.
+Register a project from a URL, building the source repo `bp` will own.
 
-Arguments, flags, human-readable output and exit code all land here.
+```
+bp project add <url> [--name <name>]
+```
 
-:::note[Stub]
+This makes an **owned** project: `bp` built the repo, so `bp` owns its branch
+namespace, its config, and the branches `destroy` cleans up. Pointing at a
+checkout you already have is [`bp project adopt`](./adopt.md) instead.
 
-This page is a placeholder. The navigation is complete before the prose is,
-so the shape of these docs can be argued with while arguing is still cheap.
+## Arguments
+| argument | required | what it is |
+| --- | --- | --- |
+| `<url>` | yes | Anything `git` can fetch from: `git@gitlab.com:signageos/codestyle.git`, `https://…`, `ssh://…`. |
 
-:::
+`bp` speaks the git protocol and no forge API. It never reads, stores, prompts
+for or forwards a credential — your credential helpers and `ssh-agent` do the
+work. **A private repo you cannot `git clone` by hand is one `bp` cannot use.**
+
+## Flags
+| flag | default | what it does |
+| --- | --- | --- |
+| `--name <name>` | the last segment of the URL's path | The project's name, which is also its directory name. |
+
+Plus the [global flags](../global-flags.md#global-flags).
+
+A name is lowercase `[a-z0-9][a-z0-9._-]*`, flat, and unique per host.
+
+## What it builds
+```
+<projects-dir>/<name>/
+  project.toml
+  repo.git/          the source repo: bare
+  bin/               yours to create; never written to by bp
+```
+
+The source repo is built by hand rather than cloned:
+
+```sh
+git init --bare repo.git
+git -C repo.git remote add origin <url>
+git -C repo.git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+git -C repo.git fetch origin
+git -C repo.git remote set-head origin -a
+git -C repo.git config push.default current
+```
+
+**The refspec is the load-bearing line, and it is not a default.** It is what
+makes three things true at once:
+
+- **`fetch` always succeeds**, because it writes only to
+  `refs/remotes/origin/*`, which nothing ever checks out.
+- **`refs/heads/*` holds exactly the branches plane members were created on** —
+  the forge's branches never touch that namespace. That is what makes a branch
+  the responsibility of the plane that owns it.
+- **`@{u}` means the forge's view** rather than a local copy of it, so
+  "unpushed" is honest.
+
+Neither `git clone --mirror` nor `git clone --bare` is used. `--mirror` sets
+`remote.origin.mirror = true`, which a worktree inherits, turning an ordinary
+`git push` into a force-push-everything-and-delete-the-rest against your forge;
+`--bare` copies the forge's branches into `refs/heads/*` before the refspec can
+be set. After the first fetch `refs/heads/*` holds **zero** refs, and exactly
+one after the first worktree.
+
+`push.default = current` is set because a plane branch is created off
+`origin/main` and keeps `origin/main` as its upstream, so git's default
+`push.default = simple` would make a plain `git push` fail in a worktree `bp`
+just handed you. It is set on **owned** source repos only.
+
+## Output
+```
+$ bp project add git@gitlab.com:signageos/codestyle.git
+```
+```
+@codestyle  owned
+  source     git@gitlab.com:signageos/codestyle.git
+  directory  ~/.local/share/bitplane/projects/codestyle
+  default    main
+```
+
+## Examples
+### The default name is taken
+Exit `2`. Refused with a suggestion, never silently disambiguated — a generated
+default that renames itself behind your back is worse than an error naming the
+conflict.
+
+```
+$ bp project add git@gitlab.com:signageos/codestyle.git
+```
+```json
+{"error":"project_name_taken","code":2,"message":"codestyle is already a project","problems":[],"remedy":"signageos-codestyle is free; re-run with --name signageos-codestyle."}
+```
+
+Two commands, and that is correct: you supplied new information in between, so
+it is a second intent rather than a retry.
+
+### The fetch fails
+Exit `1`. The **registration** is unwound; the **objects are kept**.
+
+```json
+{"error":"project_add_aborted","code":1,"message":"@codestyle was not registered","problems":[{"subject":"origin","message":"could not fetch: Connection refused"}],"remedy":"The objects fetched so far were kept at ~/.local/share/bitplane/projects/codestyle/repo.git; re-running bp project add will reuse them."}
+```
+
+A cold fetch of a large repo is expensive to discard, and `init --bare` +
+`fetch` is resumable in a way `clone` is not: a partial object store is reused
+by the next fetch. Because `project.toml` was never written, **the leftover
+directory simply is not a project** — nothing lists it, and
+[`bp doctor`](../plane/doctor.md#the-four-sweeps) reports it.
+
+### The repo would land on a reserved path
+Exit `2`.
+
+```json
+{"error":"reserved_path_segment","code":2,"message":"a worktree of this repo would land at .bitplane/tools, which is reserved","problems":[],"remedy":"Move the repository out of a directory called .bitplane."}
+```
+
+## Exit codes
+| code | when |
+| --- | --- |
+| `0` | the project is registered |
+| `1` | the fetch or the write failed; nothing is registered |
+| `2` | bad arguments, a taken name, an invalid name, or a reserved path |
+| `4` | git is missing, unusable or older than 2.36 |
+| `5` | a lock could not be taken in time |
+| `130` | interrupted |
+
+## See also
+
+- [`bp project adopt`](./adopt.md) — register a checkout you already have
+- [`bp project fetch`](./fetch.md) · [`bp project show`](./show.md)

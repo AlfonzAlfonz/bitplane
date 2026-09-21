@@ -60,6 +60,10 @@ const sidebars = {
         'reference/plane/show',
         'reference/plane/status',
         'reference/plane/run',
+        // `doctor` is a host verb rather than a plane verb, but it is bare like
+        // the plane verbs and it is the write-side partner of `repair`, so it
+        // sits here rather than earning a one-item category of its own.
+        'reference/plane/doctor',
       ],
     },
     {
