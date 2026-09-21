@@ -101,7 +101,7 @@ adopting the repo once makes it addressable as `@name` forever after.
 
 ## What a member is not
 
-- **Not a worktree path.** `bp rm signageos/api` does not work; `bp rm @api`
+- **Not a worktree path.** `bp rm acme/api` does not work; `bp rm @api`
   does. The path is where the worktree happens to live, and
   [`bp repair`](./plane/repair.md) is allowed to change it.
 - **Not unique per `(project, branch)`.** A plane holds **at most one worktree
@@ -119,7 +119,7 @@ keeps the layout it was built with.
 
 | source | derived path |
 | --- | --- |
-| `git@gitlab.com:signageos/codestyle.git` | `signageos/codestyle` |
+| `git@gitlab.com:acme/codestyle.git` | `acme/codestyle` |
 | `~/projects/bitplane` | `projects/bitplane` |
 
 A member whose derived path would begin with `.bitplane` is refused — that

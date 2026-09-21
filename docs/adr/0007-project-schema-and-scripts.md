@@ -42,7 +42,7 @@ name = "codestyle"
 
 [source]
 type = "owned"
-url = "git@gitlab.com:signageos/codestyle.git"
+url = "git@gitlab.com:acme/codestyle.git"
 
 [scripts.link-alfonz]
 argv = ["ln", "-s", "../../.alfonz", ".alfonz"]

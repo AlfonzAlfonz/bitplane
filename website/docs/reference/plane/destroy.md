@@ -63,9 +63,9 @@ $ bp destroy
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api   feat-login  removed  signageos/api (branch deleted)
-  @web   feat-login  removed  signageos/web (branch deleted)
-  @docs  -           already gone  signageos/docs
+  @api   feat-login  removed  acme/api (branch deleted)
+  @web   feat-login  removed  acme/web (branch deleted)
+  @docs  -           already gone  acme/docs
 
 destroyed bp-a3f9c2e1
 ```
@@ -99,7 +99,7 @@ $ bp destroy -p auth-work
 ```
 auth-work  ~/planes/auth-work
 
-  @api  feat-login  removed  signageos/api
+  @api  feat-login  removed  acme/api
 
 destroyed auth-work (create had never completed)
 ```

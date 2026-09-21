@@ -53,7 +53,7 @@ $ bp add @docs:feat-login
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @docs  feat-login  created  signageos/docs
+  @docs  feat-login  created  acme/docs
 ```
 
 ## Examples

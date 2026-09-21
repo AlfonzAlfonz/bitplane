@@ -68,7 +68,7 @@ findings
 
   ~/.local/share/bitplane/projects/codestyle
     holds repo.git but no project.toml, so it is not a project
-    bp project add git@gitlab.com:signageos/codestyle.git will reuse the objects
+    bp project add git@gitlab.com:acme/codestyle.git will reuse the objects
 
 2 findings
 ```

@@ -67,8 +67,8 @@ $ bp rename auth-work
 ```
 auth-work  ~/planes/auth-work
 
-  @api  feat-login  renamed  signageos/api
-  @web  feat-login  renamed  signageos/web
+  @api  feat-login  renamed  acme/api
+  @web  feat-login  renamed  acme/web
 
 bp-a3f9c2e1 is now auth-work
 ```

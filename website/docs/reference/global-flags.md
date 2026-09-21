@@ -52,7 +52,7 @@ makes `bp add`'s branch mandatory and `bp run`'s project mandatory: an implicit
 subject inferred from an argument slot is where surprise damage comes from.
 
 A path resolves to a **plane**, never to a member. `bp rm` standing inside
-`signageos/api` still requires you to name `@api`.
+`acme/api` still requires you to name `@api`.
 
 `bp` never reads `BITPLANE_PLANE_DIR` or `BITPLANE_PLANE_ID` back. Those are
 written for scripts to consume; a stale one inherited from an outer shell would

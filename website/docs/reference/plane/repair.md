@@ -72,8 +72,8 @@ $ bp repair
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api  feat-login  repaired  signageos/api
-  @web  feat-login  repaired  signageos/web (moved from signageos/www)
+  @api  feat-login  repaired  acme/api
+  @web  feat-login  repaired  acme/web (moved from acme/www)
 ```
 
 Nothing to do:
@@ -84,8 +84,8 @@ $ bp repair
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api  feat-login  unchanged  signageos/api
-  @web  feat-login  unchanged  signageos/web
+  @api  feat-login  unchanged  acme/api
+  @web  feat-login  unchanged  acme/web
 
 nothing to repair
 ```
@@ -102,8 +102,8 @@ $ bp repair
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api   feat-login  repaired  signageos/api
-  @docs  -           failed: no worktree found  signageos/docs
+  @api   feat-login  repaired  acme/api
+  @docs  -           failed: no worktree found  acme/docs
 ```
 
 ### The plane was never finished being created

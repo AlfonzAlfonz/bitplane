@@ -180,7 +180,7 @@ exists. Re-running identically will never help.
 | `plane_id_in_use` | `auth-work is a claimed directory with no plane file` | `Run` `bp doctor` `to see what is in it, then remove the directory by hand.` |
 | `reserved_plane_id` | `bp- is reserved for generated plane ids` | `Choose an id that does not start with bp-.` |
 | `invalid_plane_id` | `Auth_Work is not a valid plane id` | `Use lowercase letters, digits and . _ - ; start with a letter or digit; 64 characters at most.` |
-| `project_name_taken` | `codestyle is already a project` | `signageos-codestyle is free; re-run with --name signageos-codestyle.` |
+| `project_name_taken` | `codestyle is already a project` | `acme-codestyle is free; re-run with --name acme-codestyle.` |
 | `reserved_path_segment` | `a worktree of this repo would land at .bitplane/api, which is reserved` | `Move the repository out of a directory called .bitplane.` |
 | `duplicate_member` | `@api is already a member of bp-a3f9c2e1` | `Run` `bp rm @api`, `then` `bp add @api:feat-login.` |
 | `branch_unspecified` | `no branch given for @api` | `Pass -b <branch>, or write the member as @api:<branch>.` |

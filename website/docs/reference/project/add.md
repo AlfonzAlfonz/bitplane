@@ -18,7 +18,7 @@ checkout you already have is [`bp project adopt`](./adopt.md) instead.
 
 | argument | required | what it is |
 | --- | --- | --- |
-| `<url>` | yes | Anything `git` can fetch from: `git@gitlab.com:signageos/codestyle.git`, `https://…`, `ssh://…`. |
+| `<url>` | yes | Anything `git` can fetch from: `git@gitlab.com:acme/codestyle.git`, `https://…`, `ssh://…`. |
 
 `bp` speaks the git protocol and no forge API. It never reads, stores, prompts
 for or forwards a credential — your credential helpers and `ssh-agent` do the
@@ -80,11 +80,11 @@ just handed you. It is set on **owned** source repos only.
 ## Output
 
 ```
-$ bp project add git@gitlab.com:signageos/codestyle.git
+$ bp project add git@gitlab.com:acme/codestyle.git
 ```
 ```
 @codestyle  owned
-  source     git@gitlab.com:signageos/codestyle.git
+  source     git@gitlab.com:acme/codestyle.git
   directory  ~/.local/share/bitplane/projects/codestyle
   default    main
 ```
@@ -98,10 +98,10 @@ default that renames itself behind your back is worse than an error naming the
 conflict.
 
 ```
-$ bp project add git@gitlab.com:signageos/codestyle.git
+$ bp project add git@gitlab.com:acme/codestyle.git
 ```
 ```json
-{"error":"project_name_taken","code":2,"message":"codestyle is already a project","problems":[],"remedy":"signageos-codestyle is free; re-run with --name signageos-codestyle."}
+{"error":"project_name_taken","code":2,"message":"codestyle is already a project","problems":[],"remedy":"acme-codestyle is free; re-run with --name acme-codestyle."}
 ```
 
 Two commands, and that is correct: you supplied new information in between, so

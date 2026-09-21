@@ -83,8 +83,8 @@ $ bp create @api @web -b feat-login
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api  feat-login  created  signageos/api
-  @web  feat-login  created  signageos/web
+  @api  feat-login  created  acme/api
+  @web  feat-login  created  acme/web
 ```
 
 A branch that had to be created is marked, because it is the difference between
@@ -96,7 +96,7 @@ $ bp create @api ~/projects/bitplane -b feat-login
 ```
 bp-7c1e0d44  ~/planes/bp-7c1e0d44
 
-  @api                             feat-login  created               signageos/api
+  @api                             feat-login  created               acme/api
   /Users/alfonz/projects/bitplane  feat-login  created (new branch)  projects/bitplane
 ```
 
@@ -156,9 +156,9 @@ $ bp create @api @web @docs -b feat-login
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api   feat-login  removed  signageos/api
-  @web   -           skipped: interrupted  signageos/web
-  @docs  -           skipped: interrupted  signageos/docs
+  @api   feat-login  removed  acme/api
+  @web   -           skipped: interrupted  acme/web
+  @docs  -           skipped: interrupted  acme/docs
 ```
 
 ### A post-create script fails

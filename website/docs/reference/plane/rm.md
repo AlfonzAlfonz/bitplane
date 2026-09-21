@@ -81,7 +81,7 @@ $ bp rm @docs
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @docs  feat-login  removed  signageos/docs (branch deleted)
+  @docs  feat-login  removed  acme/docs (branch deleted)
 ```
 
 A member whose worktree was already gone converges silently:
@@ -92,7 +92,7 @@ $ bp rm @docs
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @docs  -  already gone  signageos/docs
+  @docs  -  already gone  acme/docs
 ```
 
 ## Examples
@@ -134,8 +134,8 @@ $ bp rm @api @web --waive uncommitted --waive untracked
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api  feat-login  removed  signageos/api (branch deleted, waived: uncommitted)
-  @web  feat-login  removed  signageos/web (branch deleted, waived: untracked)
+  @api  feat-login  removed  acme/api (branch deleted, waived: uncommitted)
+  @web  feat-login  removed  acme/web (branch deleted, waived: untracked)
 ```
 
 The waiver is echoed, so a forced removal is visible in a transcript.

@@ -29,7 +29,7 @@ The walk runs in the engine rather than in the CLI, so it stays executable
 against a remote host later.
 
 **A path resolves to a plane, never to a member.** Standing in
-`signageos/api` and running `bp show` describes the whole plane, not `@api`.
+`acme/api` and running `bp show` describes the whole plane, not `@api`.
 Identifying the member would be free and is declined anyway: a ref that
 sometimes carries a member is an implicit subject only some commands honour, and
 you cannot predict which.
@@ -58,8 +58,8 @@ bp-a3f9c2e1
   created    2026-09-21 14:03
   members    3
 
-  @api                             feat-login  signageos/api
-  @web                             feat-login  signageos/web
+  @api                             feat-login  acme/api
+  @web                             feat-login  acme/web
   /Users/alfonz/projects/bitplane  main        projects/bitplane
 ```
 
@@ -96,11 +96,11 @@ auth-work
   members    2
   health     broken
 
-  @api  feat-login  signageos/api
-  @web  -           signageos/web   worktree missing
+  @api  feat-login  acme/api
+  @web  -           acme/web   worktree missing
 
 findings
-  @web  the worktree at signageos/web is not there
+  @web  the worktree at acme/web is not there
         bp rm @web drops it; bp add @web:<branch> puts it back
 ```
 

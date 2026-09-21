@@ -67,7 +67,7 @@ number of times.
 Existing planes keep the subdirectories they were built with. A worktree's path
 inside a plane derives from the project **source**, once, at create time — and
 the source has not changed here. Renaming `@codestyle` to `@style` does not move
-`signageos/codestyle` inside any plane.
+`acme/codestyle` inside any plane.
 
 ## Output
 

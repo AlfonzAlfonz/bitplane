@@ -30,7 +30,7 @@ $ bp project show @codestyle
 ```
 ```
 @codestyle  owned
-  source     git@gitlab.com:signageos/codestyle.git
+  source     git@gitlab.com:acme/codestyle.git
   directory  ~/.local/share/bitplane/projects/codestyle
   repo       ~/.local/share/bitplane/projects/codestyle/repo.git
   default    main

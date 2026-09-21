@@ -67,7 +67,7 @@ Worktrees live at `<plane-dir>/<derived-path>/`, where the derived path comes fr
 
 | source | derived path |
 | --- | --- |
-| `git@gitlab.com:signageos/codestyle.git` | `signageos/codestyle` |
+| `git@gitlab.com:acme/codestyle.git` | `acme/codestyle` |
 | `~/projects/bitplane` | `projects/bitplane` |
 
 The path is derived **once, at create time**, never recomputed — so existing planes keep the layout they were built with when the derivation rules change.
@@ -105,7 +105,7 @@ Rejected names, so they stop coming back: **remote** collides with git's own `re
 **project name**
 User-supplied, defaulting to the last segment of the source path (`codestyle`). Flat, unique per host, renameable.
 
-When the default collides with an existing project the operation is **refused with a suggested alternative** (`signageos-codestyle`), never silently disambiguated — a generated default that renames itself behind the user's back is worse than an error naming the conflict.
+When the default collides with an existing project the operation is **refused with a suggested alternative** (`acme-codestyle`), never silently disambiguated — a generated default that renames itself behind the user's back is worse than an error naming the conflict.
 
 Renaming a project moves its project directory and rewrites its entry; existing planes keep the subdirectories they were built with.
 

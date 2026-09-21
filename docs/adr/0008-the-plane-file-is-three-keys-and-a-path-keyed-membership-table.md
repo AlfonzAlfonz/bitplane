@@ -29,8 +29,8 @@ version = 1
 id = "bp-a3f9c2e1"
 
 [members]
-"signageos/codestyle" = "@codestyle"
-"projects/bitplane"   = "/Users/alfonz/projects/bitplane"
+"acme/codestyle"    = "@codestyle"
+"projects/bitplane" = "/Users/alfonz/projects/bitplane"
 ```
 
 Every other candidate field died for one of two reasons: git or the filesystem
@@ -106,7 +106,7 @@ on disk in every plane a user owns; `PerProject<T>` is a compiled type.
 Lifting the restriction later has a named admission price, recorded so the
 future feature answers it up front: **plane layout stops being a pure function
 of the project source** — two members of `codestyle` both derive
-`signageos/codestyle`, and the disambiguator that used to exist was the branch,
+`acme/codestyle`, and the disambiguator that used to exist was the branch,
 which ADR-0006 removed on purpose.
 
 ### The `@` sigil is admitted onto disk, in exactly one place

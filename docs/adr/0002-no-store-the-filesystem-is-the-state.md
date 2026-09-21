@@ -138,7 +138,7 @@ So the lock covers **`fetch` as well as `worktree add` and `worktree remove`** �
 
 ### A plane holds at most one worktree per project
 
-Surfaced by the lock question and settled here. `CONTEXT.md` derives a worktree's path from the **project source alone** (`git@gitlab.com:signageos/codestyle.git` → `signageos/codestyle`), with no branch component — so `@codestyle:main` and `@codestyle:review-x` in one plane derive the same path and collide.
+Surfaced by the lock question and settled here. `CONTEXT.md` derives a worktree's path from the **project source alone** (`git@gitlab.com:acme/codestyle.git` → `acme/codestyle`), with no branch component — so `@codestyle:main` and `@codestyle:review-x` in one plane derive the same path and collide.
 
 Rather than complicate the derivation, the constraint is made explicit: **`(project, branch)` pairs in a plane are unique on *project***, and `create`/`add` reject a duplicate project with a typed error. This keeps layout derivation a pure function of the source, which is what makes ticket 03's "derived once at create time, never recomputed" safe. Reviewing two branches side by side is naturally two planes, which is the tool's whole point.
 

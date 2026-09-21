@@ -113,7 +113,7 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
   @web   -           worktree missing
 
 findings
-  @web  the worktree at signageos/web is not there
+  @web  the worktree at acme/web is not there
         bp rm @web drops it; bp add @web:<branch> puts it back
 ```
 
