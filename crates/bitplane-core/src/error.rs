@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::exit::ExitCode;
 use crate::git::{GitVersion, MINIMUM_GIT_VERSION};
+use crate::member::PROJECT_SIGIL;
 use crate::outcome::{Outcome, PerMember};
 use crate::plane_id::GENERATED_ID_PREFIX;
 use crate::wire::{CreatedMember, PlaneRef};
@@ -101,6 +102,50 @@ pub enum EngineError {
     /// "you are not standing in one" and "there is no plane by that name" have
     /// different ways out.
     PlaneNotFound { sought: PlaneRef },
+    /// The name a new project would take is already a project.
+    ///
+    /// Refused with a suggestion rather than silently disambiguated: a
+    /// generated default that renames itself behind the user's back is worse
+    /// than an error naming the conflict. `suggestion` is absent where the user
+    /// chose the name themselves — there is nothing to suggest when the name
+    /// was not derived.
+    ProjectNameTaken {
+        name: String,
+        suggestion: Option<String>,
+    },
+    /// The name derived from a source is not a project name.
+    ///
+    /// Distinct from [`EngineError::InvalidProjectName`] because the user did
+    /// not type this one — the URL did — so the remedy names the flag that
+    /// overrides it rather than reciting the charset at someone who never
+    /// chose a name.
+    DerivedNameInvalid {
+        derived: String,
+        suggestion: Option<String>,
+    },
+    /// A `project_add` that did not finish. **The registration is unwound and
+    /// the object store is kept**: `init --bare` + `fetch` is resumable in a
+    /// way `clone` is not, so a partial object store is reused by the next
+    /// attempt (ADR-0005). No `project.toml` was written, so by the existing
+    /// rule the leftover directory simply is not a project.
+    ProjectAddAborted {
+        name: String,
+        /// The object store this run kept, which a retry will reuse. `None`
+        /// where the run gave up before there was one to keep.
+        kept: Option<PathBuf>,
+        /// Which step gave up, and what git said about it.
+        problem: Problem,
+    },
+    /// At least one project could not be fetched. The per-project rows are the
+    /// result and are reported alongside this, because a fan-out row is data
+    /// rather than an error once the fan-out has begun.
+    FetchFailed {
+        failed: usize,
+        /// The projects there was something to fetch **for**. An adopted
+        /// project is a row, never a denominator.
+        fetchable: usize,
+        problems: Vec<Problem>,
+    },
     /// A member with no branch, from a suffix or from `-b`.
     BranchUnspecified { member: String },
     /// A member written so that the branch suffix cannot be told from the path.
@@ -203,6 +248,10 @@ impl EngineError {
             EngineError::MemberPathCollision { .. } => "member_path_collision",
             EngineError::ProjectNotFound { .. } => "project_not_found",
             EngineError::PlaneNotFound { .. } => "plane_not_found",
+            EngineError::ProjectNameTaken { .. } => "project_name_taken",
+            EngineError::DerivedNameInvalid { .. } => "derived_name_invalid",
+            EngineError::ProjectAddAborted { .. } => "project_add_aborted",
+            EngineError::FetchFailed { .. } => "fetch_failed",
             EngineError::BranchUnspecified { .. } => "branch_unspecified",
             EngineError::MemberPathAmbiguous { .. } => "member_path_ambiguous",
             EngineError::MemberNotARepository { .. } => "member_not_a_repository",
@@ -238,6 +287,8 @@ impl EngineError {
             | EngineError::MemberPathCollision { .. }
             | EngineError::ProjectNotFound { .. }
             | EngineError::PlaneNotFound { .. }
+            | EngineError::ProjectNameTaken { .. }
+            | EngineError::DerivedNameInvalid { .. }
             | EngineError::BranchUnspecified { .. }
             | EngineError::MemberPathAmbiguous { .. }
             | EngineError::MemberNotARepository { .. }
@@ -251,6 +302,8 @@ impl EngineError {
             | EngineError::ParseError { .. }
             | EngineError::GitFailed { .. }
             | EngineError::CreateAborted { .. }
+            | EngineError::ProjectAddAborted { .. }
+            | EngineError::FetchFailed { .. }
             | EngineError::Io { .. } => ExitCode::Failure,
         }
     }
@@ -296,6 +349,8 @@ impl EngineError {
                 .filter_map(problem_from_row)
                 .chain(rollback.iter().filter_map(problem_from_rollback))
                 .collect(),
+            EngineError::ProjectAddAborted { problem, .. } => vec![problem.clone()],
+            EngineError::FetchFailed { problems, .. } => problems.clone(),
             _ => Vec::new(),
         }
     }
@@ -363,6 +418,29 @@ impl EngineError {
                     "cd into a plane, or name one with --plane.".to_owned()
                 }
             }),
+            EngineError::ProjectNameTaken { suggestion, .. } => Some(match suggestion {
+                Some(free) => format!("{free} is free; re-run with --name {free}."),
+                None => "Choose another name, or remove the project holding it.".to_owned(),
+            }),
+            EngineError::DerivedNameInvalid { suggestion, .. } => Some(match suggestion {
+                Some(free) => format!("Re-run with --name {free}."),
+                None => "Re-run with --name <name>, using lowercase letters, digits \
+                         and . _ - ."
+                    .to_owned(),
+            }),
+            EngineError::ProjectAddAborted { kept, .. } => Some(match kept {
+                Some(kept) => format!(
+                    "The objects fetched so far were kept at {}; \
+                     re-running bp project add will reuse them.",
+                    kept.display()
+                ),
+                None => "Nothing was kept. Fix what the row reports, then run \
+                         bp project add again."
+                    .to_owned(),
+            }),
+            // None. The rows name every project that failed and why, and a
+            // single sentence cannot answer four different forges at once.
+            EngineError::FetchFailed { .. } => None,
             EngineError::BranchUnspecified { member } => Some(format!(
                 "Pass -b <branch>, or write the member as {member}:<branch>."
             )),
@@ -479,6 +557,24 @@ impl fmt::Display for EngineError {
                     write!(f, "no plane contains {}", path.display())
                 }
             },
+            EngineError::ProjectNameTaken { name, .. } => {
+                write!(f, "{name} is already a project")
+            }
+            EngineError::DerivedNameInvalid { derived, .. } => {
+                write!(
+                    f,
+                    "{derived} is not a name bitplane can derive a project from"
+                )
+            }
+            EngineError::ProjectAddAborted { name, .. } => {
+                write!(f, "{PROJECT_SIGIL}{name} was not registered")
+            }
+            EngineError::FetchFailed {
+                failed, fetchable, ..
+            } => write!(
+                f,
+                "{failed} of {fetchable} fetchable projects could not be fetched"
+            ),
             EngineError::BranchUnspecified { member } => {
                 write!(f, "no branch given for {member}")
             }

@@ -268,6 +268,7 @@ exists. Re-running identically will never help.
 | `reserved_plane_id` | `bp- is reserved for generated plane ids` | `Choose an id that does not start with bp-.` |
 | `invalid_plane_id` | `Auth_Work is not a valid plane id` | `Use lowercase letters, digits and . _ - ; start with a letter or digit; 64 characters at most.` |
 | `project_name_taken` | `codestyle is already a project` | `acme-codestyle is free; re-run with --name acme-codestyle.` |
+| `derived_name_invalid` | `MyProject is not a name bitplane can derive a project from` | `Re-run with --name myproject.` |
 | `reserved_path_segment` | `a worktree of this repo would land at .bitplane/api, which is reserved` | `Move the repository out of a directory called .bitplane.` |
 | `duplicate_member` | `@api is already a member of bp-a3f9c2e1` | `Run` `bp rm @api`, `then` `bp add @api:<branch>.` |
 | `duplicate_member` | `/Users/alfonz/projects/api is named twice` | `A plane holds at most one worktree per repository; name it once.` |
@@ -286,6 +287,13 @@ exists. Re-running identically will never help.
 | `project_not_found` | `there is no project called codestyle` | `Run` `bp project list` `to see what projects exist.` |
 | `project_not_in_plane` | `@web is not a member of bp-a3f9c2e1` | `Run` `bp show` `to see the members of this plane.` |
 | `script_not_found` | `@api has no script called intall` | `Run` `bp project show @api` `to see the scripts it declares.` |
+
+`derived_name_invalid` is distinct from `invalid_project_name` because you did
+not type the name — the URL did. Reciting the charset at someone who never chose
+a name is no help, so the remedy names
+[`--name`](./project/add.md#flags) and the nearest name the charset will take.
+`bp` never applies that fold on your behalf: a default that renames itself
+behind your back is the same fault as one that disambiguates itself.
 
 The three `plane_id_in_use` messages are three different things `bp` found at
 the path. `create` stats the one path it already knows and classifies it, so the

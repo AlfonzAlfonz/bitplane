@@ -168,9 +168,9 @@ fn resolve(
     let (subject, suffix) = split_branch_suffix(spec);
 
     let source = match MemberRef::parse(subject)? {
-        // The projects directory *is* the registry, and nothing writes a
-        // `project.toml` yet — `bp project add` and `bp project adopt` are
-        // later slices — so until they land no name resolves.
+        // A project may now be registered, but a plane cannot hold one yet:
+        // resolving `@name` to its source repo, and the branch rules that
+        // follow from ownership, are the next slice.
         MemberRef::Project(name) => {
             return Err(EngineError::ProjectNotFound {
                 name: name.to_string(),

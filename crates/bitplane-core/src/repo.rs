@@ -186,6 +186,151 @@ impl Git {
         Ok(None)
     }
 
+    /// The branch a new plane branch would be cut from, **named** rather than
+    /// spelled as a ref — `main`, not `refs/remotes/origin/HEAD`.
+    ///
+    /// The same ladder as [`Git::base_for_a_new_branch`], and deliberately not
+    /// a second source of truth: both read git, every time, because a forge
+    /// that renames its default branch would make a stored copy silently wrong.
+    pub fn default_branch(&self, repo: &Path) -> Result<Option<String>, EngineError> {
+        if let Some(named) = self.symbolic_ref(repo, ORIGIN_HEAD)? {
+            return Ok(Some(
+                named.strip_prefix("origin/").unwrap_or(&named).to_owned(),
+            ));
+        }
+
+        // Only once HEAD resolves to a commit. A bare repo's HEAD is a symref
+        // to an unborn `refs/heads/main` from the moment it is created, and
+        // reporting that as a default would be a guess dressed as an answer.
+        if self.status(repo, &["rev-parse", "--verify", "--quiet", "HEAD"])? {
+            return self.symbolic_ref(repo, "HEAD");
+        }
+
+        Ok(None)
+    }
+
+    /// `git init --bare <name>`, inside `parent`.
+    ///
+    /// Neither `clone --mirror` nor `clone --bare` (ADR-0005): `--mirror` turns
+    /// an ordinary `git push` from a worktree into a force-push-everything
+    /// against the forge, and `--bare` copies the forge's branches into
+    /// `refs/heads/*` before the refspec can be set, polluting the namespace
+    /// the refspec exists to keep clean. Re-running it on a repo a previous
+    /// attempt left is a reinit, which is what makes a failed add resumable.
+    pub fn init_bare(&self, parent: &Path, name: &str) -> Result<(), EngineError> {
+        self.run(parent, &["init", "--bare", "--quiet", name])
+            .map(drop)
+    }
+
+    /// Points `origin` at `url`, whether or not a previous attempt already
+    /// added it.
+    ///
+    /// `remote add` on a second run fails with `remote origin already exists`,
+    /// and a failed `project_add` is meant to be re-runnable — so the add is
+    /// the fresh path and the set-url is the resumption.
+    pub fn set_origin(&self, repo: &Path, url: &str) -> Result<(), EngineError> {
+        if self.status(repo, &["remote", "get-url", "origin"])? {
+            self.run(repo, &["remote", "set-url", "origin", url])
+                .map(drop)
+        } else {
+            self.run(repo, &["remote", "add", "origin", url]).map(drop)
+        }
+    }
+
+    /// `git config <key> <value>` in `repo`.
+    ///
+    /// Only ever called on a source repo bitplane built. An adopted project's
+    /// config is the user's and is never touched.
+    pub fn set_config(&self, repo: &Path, key: &str, value: &str) -> Result<(), EngineError> {
+        self.run(repo, &["config", key, value]).map(drop)
+    }
+
+    /// `git fetch origin`, optionally pruning.
+    ///
+    /// `--prune` is safe **because of the refspec**: `refs/remotes/origin/*` is
+    /// a pure cache of the forge and holds nothing a user owns, so pruning
+    /// cannot lose work. Tags are left at git's default and never pruned —
+    /// `refs/tags/*` is a namespace shared with every worktree bitplane does
+    /// not own.
+    pub fn fetch(&self, repo: &Path, prune: bool) -> Result<(), EngineError> {
+        let mut args = vec!["fetch", "--quiet"];
+        if prune {
+            args.push("--prune");
+        }
+        args.push("origin");
+
+        self.run(repo, &args).map(drop)
+    }
+
+    /// `git remote set-head origin -a`, which records the forge's default
+    /// branch at `refs/remotes/origin/HEAD`.
+    ///
+    /// Answers whether the forge named one. A remote with no HEAD — an empty
+    /// repository — is not a failure: the base is then simply unspecified, and
+    /// that is only an error at the moment a new branch has to be cut from it
+    /// (ADR-0005).
+    pub fn set_origin_head(&self, repo: &Path) -> Result<bool, EngineError> {
+        self.status(repo, &["remote", "set-head", "origin", "-a"])
+    }
+
+    /// Every branch under `refs/remotes/origin/*`, with the object each points
+    /// at.
+    ///
+    /// The oracle for *"how much did that fetch change"*, which git's own
+    /// output only reports as prose. Taken before and after, so a ref added,
+    /// removed or moved all count alike.
+    ///
+    /// `origin/HEAD` is **excluded**: it is a symref recording which branch the
+    /// forge defaults to, so it resolves to whatever that branch points at and
+    /// would report every move of `main` twice.
+    pub fn remote_refs(&self, repo: &Path) -> Result<Vec<(String, String)>, EngineError> {
+        let listing = self.run(
+            repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname) %(objectname)",
+                "refs/remotes/origin",
+            ],
+        )?;
+
+        Ok(listing
+            .lines()
+            .filter_map(|line| line.split_once(' '))
+            .filter(|(reference, _)| *reference != ORIGIN_HEAD)
+            .map(|(reference, object)| (reference.to_owned(), object.to_owned()))
+            .collect())
+    }
+
+    /// Every `refs/heads/*` in `repo`.
+    ///
+    /// In a bitplane-owned source repo this is **exactly** the set of branches
+    /// plane members were created on, past and present — which is the whole
+    /// point of the clone-shaped refspec.
+    pub fn local_branches(&self, repo: &Path) -> Result<Vec<String>, EngineError> {
+        let listing = self.run(
+            repo,
+            &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        )?;
+
+        Ok(listing.lines().map(str::to_owned).collect())
+    }
+
+    /// What a symbolic ref points at, in short form, or `None` where it is not
+    /// there or is not symbolic.
+    fn symbolic_ref(&self, repo: &Path, reference: &str) -> Result<Option<String>, EngineError> {
+        let args = ["symbolic-ref", "--quiet", "--short", reference];
+        let output = self.spawn(repo, &args.map(OsStr::new))?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        Ok(String::from_utf8(output.stdout)
+            .ok()
+            .map(|named| named.trim().to_owned())
+            .filter(|named| !named.is_empty()))
+    }
+
     /// `git worktree add`, checking out an existing branch.
     pub fn add_worktree(&self, repo: &Path, at: &Path, branch: &str) -> Result<(), EngineError> {
         self.run_os(

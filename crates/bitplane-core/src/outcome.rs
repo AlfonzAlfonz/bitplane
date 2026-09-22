@@ -14,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::EngineError;
-use crate::member::MemberRef;
+use crate::member::{MemberRef, ProjectName};
 
 /// One member's row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +22,21 @@ pub struct PerMember<T> {
     pub member: MemberRef,
     /// Flattened, so a row is one flat object on the wire: the key beside the
     /// outcome rather than nested under a field called the same word.
+    #[serde(flatten)]
+    pub outcome: Outcome<T>,
+}
+
+/// One project's row.
+///
+/// The same shape as [`PerMember`] under a different key, because the two key
+/// different things and ADR-0003 says so: [`MemberRef`] keys every plane
+/// fan-out, and [`ProjectName`] keys the `project_*` actions. Spelled twice
+/// rather than made generic, because the key's *name* is part of the wire
+/// format — a reader of a row should not have to know which fan-out it came
+/// from to read its subject.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PerProject<T> {
+    pub project: ProjectName,
     #[serde(flatten)]
     pub outcome: Outcome<T>,
 }
@@ -57,6 +72,10 @@ pub enum SkipReason {
     AbortedAfterEarlierFailure,
     /// Scheduling stopped because the run was interrupted.
     Interrupted,
+    /// An **adopted** project, on a fetch. Its source repo is the user's
+    /// checkout, so there is no forge to bring it up to date with. Naming one
+    /// is not an error; it is a row, and never a denominator.
+    NothingToFetch,
 }
 
 impl<T> PerMember<T> {
@@ -90,12 +109,44 @@ impl<T> PerMember<T> {
     }
 }
 
+impl<T> PerProject<T> {
+    pub fn new(project: ProjectName, outcome: Outcome<T>) -> PerProject<T> {
+        PerProject { project, outcome }
+    }
+
+    pub fn ok(project: ProjectName, value: T) -> PerProject<T> {
+        PerProject::new(project, Outcome::Ok(value))
+    }
+
+    pub fn skipped(project: ProjectName, reason: SkipReason) -> PerProject<T> {
+        PerProject::new(project, Outcome::Skipped(reason))
+    }
+
+    pub fn failed(project: ProjectName, error: EngineError) -> PerProject<T> {
+        PerProject::new(project, Outcome::Failed(error))
+    }
+
+    /// Whether this row is one that did not work.
+    pub fn is_failure(&self) -> bool {
+        matches!(self.outcome, Outcome::Failed(_))
+    }
+
+    /// What this row produced, where it produced anything.
+    pub fn value(&self) -> Option<&T> {
+        match &self.outcome {
+            Outcome::Ok(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
 impl SkipReason {
     /// The clause a fan-out row prints after `skipped:`.
     pub fn reason(self) -> &'static str {
         match self {
             SkipReason::AbortedAfterEarlierFailure => "aborted after an earlier failure",
             SkipReason::Interrupted => "interrupted",
+            SkipReason::NothingToFetch => "nothing to fetch (adopted)",
         }
     }
 }
@@ -140,8 +191,19 @@ mod tests {
         for reason in [
             SkipReason::AbortedAfterEarlierFailure,
             SkipReason::Interrupted,
+            SkipReason::NothingToFetch,
         ] {
             assert!(!reason.reason().is_empty(), "for {reason:?}");
         }
+    }
+
+    #[test]
+    fn a_project_row_carries_its_name_as_the_key_the_wire_uses() {
+        let row: PerProject<u32> = PerProject::ok(ProjectName::parse("codestyle").unwrap(), 3);
+
+        let json = serde_json::to_string(&row).unwrap();
+
+        assert!(json.contains(r#""project":"codestyle""#), "got {json}");
+        assert_eq!(serde_json::from_str::<PerProject<u32>>(&json).unwrap(), row);
     }
 }

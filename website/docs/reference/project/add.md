@@ -127,6 +127,23 @@ by the next fetch. Because `project.toml` was never written, **the leftover
 directory simply is not a project** — nothing lists it, and
 [`bp doctor`](../plane/doctor.md#the-four-sweeps) reports it.
 
+### The URL derives a name the charset will not take
+
+Exit `2`. A forge that names a repo `MyProject` has not told `bp` what the
+project should be called.
+
+```
+$ bp project add git@gitlab.com:acme/MyProject.git
+```
+```
+error[derived_name_invalid]: MyProject is not a name bitplane can derive a project from
+
+remedy: Re-run with --name myproject.
+```
+
+The suggestion is the nearest name the charset takes, and it is **offered, never
+applied** — same reason a taken default is refused rather than disambiguated.
+
 ### The repo would land on a reserved path
 
 Exit `2`.

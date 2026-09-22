@@ -32,6 +32,7 @@ use toml_edit::{DocumentMut, Item, TableLike, Value};
 use crate::error::EngineError;
 use crate::member::{MemberRef, WorktreePath};
 use crate::plane_id::PlaneId;
+use crate::toml_text::quoted;
 
 /// The schema version every plane file carries, from the first commit.
 pub const CURRENT_VERSION: i64 = 1;
@@ -106,27 +107,27 @@ impl PlaneFile {
     /// did not exist. Changing the membership of one that does is a
     /// `toml_edit` read-modify-write, and arrives with `bp add`.
     pub fn render(&self) -> String {
-        let width = self
+        let keys: Vec<String> = self
             .members
             .iter()
-            .map(|member| member.path.to_string().len())
-            .max()
-            .unwrap_or(0);
+            .map(|member| quoted(&member.path.to_string()))
+            .collect();
+        let width = keys.iter().map(String::len).max().unwrap_or(0);
 
         let mut text = format!(
-            "version = {}\nid = {:?}\n\n[members]\n",
+            "version = {}\nid = {}\n\n[members]\n",
             self.version,
-            self.id.as_str()
+            quoted(self.id.as_str())
         );
 
-        for member in &self.members {
-            let key = member.path.to_string();
+        for (member, key) in self.members.iter().zip(&keys) {
             // Aligned on the `=`, so the file stays worth reading by hand —
-            // which is the whole reason the state is plain text.
+            // which is the whole reason the state is plain text. Measured on
+            // the **quoted** key, because that is what lands in the file.
             let padding = " ".repeat(width - key.len());
             text.push_str(&format!(
-                "{key:?}{padding} = {:?}\n",
-                member.source.to_string()
+                "{key}{padding} = {}\n",
+                quoted(&member.source.to_string())
             ));
         }
 
@@ -258,6 +259,27 @@ mod tests {
         assert_eq!(
             PlaneFile::parse(Path::new(PATH), &file.render()).unwrap(),
             file
+        );
+    }
+
+    #[test]
+    fn a_member_path_a_filesystem_allows_is_rendered_as_toml_rather_than_rust_debug() {
+        // macOS stores `é` decomposed, so this is an ordinary path rather than
+        // an exotic one — and `{:?}` spells the combining accent with an escape
+        // TOML does not have, producing a file bitplane could never read back.
+        let file = PlaneFile::new(
+            PlaneId::parse("bp-a3f9c2e1").unwrap(),
+            vec![Member {
+                path: WorktreePath::parse("projects/e\u{301}clair").unwrap(),
+                source: MemberRef::Repo(PathBuf::from("/Users/alfonz/projects/e\u{301}clair")),
+            }],
+        );
+
+        assert_eq!(
+            PlaneFile::parse(Path::new(PATH), &file.render()).unwrap(),
+            file,
+            "rendered as: {}",
+            file.render()
         );
     }
 

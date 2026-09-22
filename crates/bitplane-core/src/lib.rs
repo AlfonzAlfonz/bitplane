@@ -26,10 +26,16 @@ pub mod outcome;
 pub mod plane_dir;
 pub mod plane_file;
 pub mod plane_id;
+pub mod project_add;
+pub mod project_dir;
+pub mod project_fetch;
+pub mod project_file;
+pub mod project_list;
 pub mod read;
 pub mod repo;
 pub mod termination;
 pub mod time;
+pub mod toml_text;
 pub mod wire;
 
 #[doc(hidden)]
@@ -47,12 +53,14 @@ pub use health::{Finding, HealthCheck, PlaneHealth};
 pub use interrupt::Interrupt;
 pub use local::LocalEngine;
 pub use member::{MemberRef, ProjectName, WorktreePath};
-pub use outcome::{Outcome, PerMember, SkipReason};
+pub use outcome::{Outcome, PerMember, PerProject, SkipReason};
 pub use plane_file::{Member, PlaneFile};
 pub use plane_id::PlaneId;
+pub use project_file::{ProjectFile, ProjectSource};
 pub use termination::Termination;
 pub use wire::{
-    BranchIntent, CreatedMember, MemberStatus, MemberView, MemberWork, PlaneCreateRequest,
+    BranchIntent, CreatedMember, Fetched, MemberStatus, MemberView, MemberWork, PlaneCreateRequest,
     PlaneCreated, PlaneList, PlaneListRequest, PlaneRef, PlaneShowRequest, PlaneStatus,
-    PlaneStatusRequest, PlaneView, Request, Response, dispatch,
+    PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded, ProjectFetchRequest,
+    ProjectFetched, ProjectListing, ProjectSummary, Request, Response, dispatch,
 };

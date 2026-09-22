@@ -18,7 +18,8 @@
 use crate::error::EngineError;
 use crate::wire::{
     PlaneCreateRequest, PlaneCreated, PlaneList, PlaneListRequest, PlaneShowRequest, PlaneStatus,
-    PlaneStatusRequest, PlaneView,
+    PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded, ProjectFetchRequest,
+    ProjectFetched, ProjectListing,
 };
 
 /// The reads: `plane_list`, `plane_show`, `plane_status`, `project_list`,
@@ -44,6 +45,13 @@ pub trait Reader {
     /// Reading is allowed; writing is not. This stores nothing, so what it
     /// reports cannot go stale — it is git's answer, rendered (ADR-0006).
     fn plane_status(&self, request: PlaneStatusRequest) -> Result<PlaneStatus, EngineError>;
+
+    /// Every project registered on this host.
+    ///
+    /// One `readdir` and one small file per project. A file that will not parse
+    /// is a row in an error state and the scan continues, because a listing
+    /// that dies on one bad file says nothing about the other nine.
+    fn project_list(&self) -> Result<ProjectListing, EngineError>;
 }
 
 /// The reads, plus every mutation.
@@ -54,4 +62,17 @@ pub trait Engine: Reader {
     /// A failure returns `Err` carrying the per-member rows, because the
     /// envelope `Err` is for an operation that produced no durable state.
     fn plane_create(&self, request: PlaneCreateRequest) -> Result<PlaneCreated, EngineError>;
+
+    /// Registers a project from a URL, building the source repo bitplane owns.
+    ///
+    /// A failure keeps the object store and unwinds only the registration: the
+    /// cold fetch is the expensive step, and `init --bare` + `fetch` is
+    /// resumable in a way `clone` is not (ADR-0005).
+    fn project_add(&self, request: ProjectAddRequest) -> Result<ProjectAdded, EngineError>;
+
+    /// Brings owned projects' source repos up to date with their forges.
+    ///
+    /// A fan-out: a forge that will not answer is one row, and every other
+    /// project still gets its turn.
+    fn project_fetch(&self, request: ProjectFetchRequest) -> Result<ProjectFetched, EngineError>;
 }
