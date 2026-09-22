@@ -100,8 +100,10 @@ conflict.
 ```
 $ bp project add git@gitlab.com:acme/codestyle.git
 ```
-```json
-{"error":"project_name_taken","code":2,"message":"codestyle is already a project","problems":[],"remedy":"acme-codestyle is free; re-run with --name acme-codestyle."}
+```
+error[project_name_taken]: codestyle is already a project
+
+remedy: acme-codestyle is free; re-run with --name acme-codestyle.
 ```
 
 Two commands, and that is correct: you supplied new information in between, so
@@ -111,8 +113,12 @@ it is a second intent rather than a retry.
 
 Exit `1`. The **registration** is unwound; the **objects are kept**.
 
-```json
-{"error":"project_add_aborted","code":1,"message":"@codestyle was not registered","problems":[{"subject":"origin","message":"could not fetch: Connection refused"}],"remedy":"The objects fetched so far were kept at ~/.local/share/bitplane/projects/codestyle/repo.git; re-running bp project add will reuse them."}
+```
+error[project_add_aborted]: @codestyle was not registered
+
+  origin  could not fetch: Connection refused
+
+remedy: The objects fetched so far were kept at ~/.local/share/bitplane/projects/codestyle/repo.git; re-running bp project add will reuse them.
 ```
 
 A cold fetch of a large repo is expensive to discard, and `init --bare` +
@@ -125,8 +131,10 @@ directory simply is not a project** — nothing lists it, and
 
 Exit `2`.
 
-```json
-{"error":"reserved_path_segment","code":2,"message":"a worktree of this repo would land at .bitplane/tools, which is reserved","problems":[],"remedy":"Move the repository out of a directory called .bitplane."}
+```
+error[reserved_path_segment]: a worktree of this repo would land at .bitplane/tools, which is reserved
+
+remedy: Move the repository out of a directory called .bitplane.
 ```
 
 ## Exit codes

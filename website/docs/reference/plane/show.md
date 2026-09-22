@@ -78,8 +78,10 @@ Exit `2`.
 ```
 $ bp show
 ```
-```json
-{"error":"plane_not_found","code":2,"message":"no plane contains /Users/alfonz/src","problems":[],"remedy":"cd into a plane, or name one with --plane."}
+```
+error[plane_not_found]: no plane contains /Users/alfonz/src
+
+remedy: cd into a plane, or name one with --plane.
 ```
 
 ### The plane has a finding

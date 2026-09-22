@@ -91,8 +91,12 @@ Exit `1`, at [`bp create`](../plane/create.md) time rather than here. Git
 refuses `worktree add` on a branch checked out in any worktree of the same repo,
 and `bp` reports it in its own words rather than passing git's message through.
 
-```json
-{"error":"branch_occupied","code":1,"message":"main is already checked out in /Users/alfonz/projects/bitplane","problems":[{"subject":"/Users/alfonz/projects/bitplane","message":"its working tree is on main"}],"remedy":"Check out a different branch there, or give this member a branch no worktree holds."}
+```
+error[branch_occupied]: main is already checked out in /Users/alfonz/projects/bitplane
+
+  /Users/alfonz/projects/bitplane  its working tree is on main
+
+remedy: Check out a different branch there, or give this member a branch no worktree holds.
 ```
 
 This cannot happen for an owned project, which holds no branch at all.
@@ -101,8 +105,10 @@ This cannot happen for an owned project, which holds no branch at all.
 
 Exit `2`.
 
-```json
-{"error":"bad_usage","code":2,"message":"/Users/alfonz/notes is not a git repository","problems":[],"remedy":"Point at a directory git recognises, or create one with git init."}
+```
+error[bad_usage]: /Users/alfonz/notes is not a git repository
+
+remedy: Point at a directory git recognises, or create one with git init.
 ```
 
 ### The name is taken

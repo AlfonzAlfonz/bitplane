@@ -105,8 +105,13 @@ Exit `1`, and nothing has been touched. See
 ```
 $ bp rm @api @web
 ```
-```json
-{"error":"refused","code":1,"message":"refusing to remove 2 of 2 members from bp-a3f9c2e1: they have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive untracked to accept losing that work."}
+```
+error[refused]: refusing to remove 2 of 2 members from bp-a3f9c2e1: they have work that would be lost
+
+  @api  feat-login has uncommitted changes
+  @web  feat-login has untracked files
+
+remedy: Inspect the members listed. Re-run with --waive uncommitted --waive untracked to accept losing that work.
 ```
 
 The count is over the members **you named**, not over the plane.
@@ -116,8 +121,10 @@ The count is over the members **you named**, not over the plane.
 Exit `1`. A latched plane is on its way to being discarded, so `rm` declines
 and points at the one verb that clears it.
 
-```json
-{"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
+```
+error[plane_incomplete]: bp-a3f9c2e1 was never finished being created
+
+remedy: Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it.
 ```
 
 Whittling a latched plane down one member at a time leaves a latched plane,

@@ -110,8 +110,10 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
 Exit `1`.
 
-```json
-{"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
+```
+error[plane_incomplete]: bp-a3f9c2e1 was never finished being created
+
+remedy: Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it.
 ```
 
 ## Exit codes

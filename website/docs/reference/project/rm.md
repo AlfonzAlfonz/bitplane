@@ -77,24 +77,35 @@ an unwaivable refusal is that the way out is obvious.
 ```
 $ bp project rm @codestyle
 ```
-```json
-{"error":"project_in_use","code":1,"message":"@codestyle has worktrees in 2 planes","problems":[{"subject":"bp-a3f9c2e1","message":"holds a worktree of @codestyle"},{"subject":"auth-work","message":"holds a worktree of @codestyle"}],"remedy":"Destroy those planes, or run bp rm @codestyle in each, then try again."}
+```
+error[project_in_use]: @codestyle has worktrees in 2 planes
+
+  bp-a3f9c2e1  holds a worktree of @codestyle
+  auth-work    holds a worktree of @codestyle
+
+remedy: Destroy those planes, or run bp rm @codestyle in each, then try again.
 ```
 
 ### An incomplete plane holds it
 
 Exit `1`.
 
-```json
-{"error":"project_in_use","code":1,"message":"@codestyle has worktrees in 1 plane","problems":[{"subject":"bp-7c1e0d44","message":"holds a worktree of @codestyle; create never completed"}],"remedy":"Nothing in bp-7c1e0d44 is yours; run bp destroy -p bp-7c1e0d44 to clear it, then try again."}
+```
+error[project_in_use]: @codestyle has worktrees in 1 plane
+
+  bp-7c1e0d44  holds a worktree of @codestyle; create never completed
+
+remedy: Nothing in bp-7c1e0d44 is yours; run bp destroy -p bp-7c1e0d44 to clear it, then try again.
 ```
 
 ### No such project
 
 Exit `2`.
 
-```json
-{"error":"project_not_found","code":2,"message":"there is no project called codestyle","problems":[],"remedy":"Run bp project list to see what projects exist."}
+```
+error[project_not_found]: there is no project called codestyle
+
+remedy: Run bp project list to see what projects exist.
 ```
 
 ## Exit codes

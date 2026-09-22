@@ -9,24 +9,74 @@ one exists at all — the waiver that answers it.
 
 ## The error envelope
 
-Every failure is one line of JSON on **stderr**, whether or not you passed
-`--json`. stdout stays clean for results.
-
-```json
-{"error":"lock_timeout","code":5,"message":"timed out waiting for the lock on /Users/alfonz/planes/bp-a3f9c2e1/.bitplane/lock","problems":[{"subject":"/Users/alfonz/planes/bp-a3f9c2e1/.bitplane/lock","message":"is locked by another process"}],"remedy":"Another bitplane process holds it; retry once that one finishes."}
-```
+Every failure is an **error envelope** — five fields, built in `bitplane-core`,
+so that this CLI, a future MCP server and the SSH servant report the same
+failure with the same tag, the same sentence and the same remedy.
 
 | field | what it is |
 | --- | --- |
-| `error` | a stable machine tag. Match on this; never render it. |
+| `error` | a stable machine tag. Match on this. |
 | `code` | the number the process exits with. See [Exit codes](./exit-codes.md). |
 | `message` | one human sentence saying what went wrong. |
 | `problems` | the individual things that were wrong. A refusal across four members is four problems. |
-| `remedy` | what to do about it, where `bp` knows. `null` where it does not. |
+| `remedy` | what to do about it, where `bp` knows. Absent where it does not. |
 
 Each problem is `{subject, message}`. The subject is the member, plane id or
-path the problem is about, rendered for display, or `null` where the problem is
+path the problem is about, rendered for display, or absent where the problem is
 about the operation as a whole.
+
+The envelope always goes to **stderr**, in every mode, so stdout stays clean for
+results. What changes with the mode is how it is *rendered*.
+
+### The human rendering
+
+This is what a failure looks like when you did not pass `--json`, and it is what
+every example on every command page shows.
+
+```
+error[refused]: refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost
+
+  @api  feat-login has uncommitted changes
+  @api  feat-login has commits that are not on origin
+  @web  feat-login has untracked files
+
+remedy: Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work.
+```
+
+**Every line maps to exactly one field of the envelope**, which is what keeps
+the two renderings from drifting apart: there is nothing in one that the other
+cannot say.
+
+| line | field |
+| --- | --- |
+| `error[<tag>]: <sentence>` | `error` and `message` |
+| each indented row | one `problems` entry, `subject` then `message` |
+| `remedy: <sentence>` | `remedy` |
+
+The tag is bracketed because it is the machine token, not prose — it is what the
+tables on this page are keyed by, and what you search for when you want the page
+that explains it. Subjects are aligned into a column, the same grammar the
+[fan-out rows](./global-flags.md#how-a-fan-out-prints) use.
+
+Three things are omitted rather than rendered empty: an envelope with no
+problems prints no indented block, a problem with no subject leaves the column
+blank, and an absent `remedy` prints no line.
+
+The `code` is not printed. It is the process's exit status, and a number on
+screen that duplicates `$?` is noise.
+
+### The JSON rendering
+
+Under [`--json`](./global-flags.md#--json), the same envelope is one line of
+JSON, still on stderr:
+
+```json
+{"error":"refused","code":1,"message":"refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@api","message":"feat-login has commits that are not on origin"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work."}
+```
+
+It stays on stderr under `--json` because stdout carries results only in every
+mode: `bp list --json | jq` never receives an error object where it expected a
+list of planes. It gets empty input, and the exit code.
 
 The tables below give `error`, `message` and `remedy` verbatim. Values that vary
 are shown as they would appear for a concrete case.
@@ -68,8 +118,14 @@ looked at silently authorise deleting a directory nobody looked at.
 ```
 $ bp destroy
 ```
-```json
-{"error":"refused","code":1,"message":"refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@api","message":"feat-login has commits that are not on origin"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work."}
+```
+error[refused]: refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost
+
+  @api  feat-login has uncommitted changes
+  @api  feat-login has commits that are not on origin
+  @web  feat-login has untracked files
+
+remedy: Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work.
 ```
 
 The remedy names **exactly the reasons that were raised**, in the order of the
@@ -107,8 +163,13 @@ Removing a project whose worktrees are live in some plane damages planes you did
 not mention and are not looking at, so no consent given in that moment is
 informed.
 
-```json
-{"error":"project_in_use","code":1,"message":"@codestyle has worktrees in 2 planes","problems":[{"subject":"bp-a3f9c2e1","message":"holds a worktree of @codestyle"},{"subject":"auth-work","message":"holds a worktree of @codestyle"}],"remedy":"Destroy those planes, or run bp rm @codestyle in each, then try again."}
+```
+error[project_in_use]: @codestyle has worktrees in 2 planes
+
+  bp-a3f9c2e1  holds a worktree of @codestyle
+  auth-work    holds a worktree of @codestyle
+
+remedy: Destroy those planes, or run bp rm @codestyle in each, then try again.
 ```
 
 The whole value of an unwaivable refusal is that the way out is obvious, so the
@@ -119,8 +180,10 @@ blocking planes are always listed **by id**.
 A plane that was claimed and never finished being created. Repairing or running
 scripts in one is meaningless work on a thing headed for deletion.
 
-```json
-{"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
+```
+error[plane_incomplete]: bp-a3f9c2e1 was never finished being created
+
+remedy: Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it.
 ```
 
 Raised by every command that would act on a latched plane:
@@ -144,8 +207,12 @@ Git refuses `worktree add` on a branch that is checked out in any worktree of
 the same repo. `bp` reports it in its own words rather than passing git's
 message through.
 
-```json
-{"error":"branch_occupied","code":1,"message":"main is already checked out in /Users/alfonz/projects/api","problems":[{"subject":"/Users/alfonz/projects/api","message":"its working tree is on main"}],"remedy":"Check out a different branch there, or give this member a branch no worktree holds."}
+```
+error[branch_occupied]: main is already checked out in /Users/alfonz/projects/api
+
+  /Users/alfonz/projects/api  its working tree is on main
+
+remedy: Check out a different branch there, or give this member a branch no worktree holds.
 ```
 
 This can only happen for an **adopted** project or an **ad-hoc member**, whose
@@ -157,8 +224,12 @@ on. A bitplane-owned source repo is bare and occupies nothing.
 A `pre_worktree_remove` script exited non-zero. The pass aborts and **nothing is
 removed**.
 
-```json
-{"error":"script_blocked","code":1,"message":"stop-stack exited 1 in @api; nothing was removed","problems":[{"subject":"@api","message":"stop-stack exited 1"}],"remedy":"Fix the script, or re-run with --no-scripts."}
+```
+error[script_blocked]: stop-stack exited 1 in @api; nothing was removed
+
+  @api  stop-stack exited 1
+
+remedy: Fix the script, or re-run with --no-scripts.
 ```
 
 It is not a refusal and no waiver covers it — a script's exit code is a

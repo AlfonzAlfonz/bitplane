@@ -89,8 +89,10 @@ $ bp project fetch
   @codestyle  fetched   up to date
   @bitplane   -         nothing to fetch (adopted)
 ```
-```json
-{"error":"fetch_failed","code":1,"message":"1 of 2 fetchable projects could not be fetched","problems":[{"subject":"@api","message":"could not fetch origin: Connection refused"}],"remedy":null}
+```
+error[fetch_failed]: 1 of 2 fetchable projects could not be fetched
+
+  @api  could not fetch origin: Connection refused
 ```
 
 The count is over the projects there was something to fetch **for**. An adopted
@@ -104,8 +106,10 @@ same one `git fetch` would give you by hand.
 
 Exit `2`.
 
-```json
-{"error":"project_not_found","code":2,"message":"there is no project called codestyle","problems":[],"remedy":"Run bp project list to see what projects exist."}
+```
+error[project_not_found]: there is no project called codestyle
+
+remedy: Run bp project list to see what projects exist.
 ```
 
 ## Exit codes

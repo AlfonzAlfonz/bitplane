@@ -206,6 +206,17 @@ The command bitplane installs on `PATH`. `bitplane` is the crate, repo and packa
 **Engine**
 The request/response interface every mutation passes through; the machine contract the CLI renders.
 
+**error envelope**
+The five fields every failure is reported as — `error`, `code`, `message`, `problems`, `remedy` — built in `bitplane-core` so every surface reports a failure with the same tag, the same sentence and the same remedy.
+
+It is **the structure, never a serialisation of it.** The envelope has two **renderings**: human by default, JSON under `--json`. Both go to stderr, because the *stream* is decided by what the output is (results on stdout, failures on stderr) and the *rendering* by the mode. Every line of the human rendering maps to exactly one field, which is what keeps them from drifting apart.
+
+The distinction is load-bearing because conflating the two is what let "always JSON on stderr" survive unargued through ADR-0003 while ADR-0007 was independently making stderr the human stream. See ADR-0003's ticket-04 banner.
+
+`error` is the **stable machine tag** and the one thing a script matches on; it is bracketed in the human rendering (`error[refused]:`) rather than hidden, because it is also what a user searches for. `code` is the exit status and is not printed.
+
+_Avoid_: "the JSON error", "the error JSON" — both name a rendering as though it were the contract.
+
 **reap**
 Destroying a plane judged to be garbage.
 

@@ -138,24 +138,32 @@ these, so that is the order you meant.
 
 Exit `1`. Later scripts are not run.
 
-```json
-{"error":"script_failed","code":1,"message":"install exited 1 in @api","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"See the log, fix the cause, then run bp run @api install."}
+```
+error[script_failed]: install exited 1 in @api
+
+  @api  install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log
+
+remedy: See the log, fix the cause, then run bp run @api install.
 ```
 
 ### No such script
 
 Exit `2`.
 
-```json
-{"error":"script_not_found","code":2,"message":"@api has no script called intall","problems":[],"remedy":"Run bp project show @api to see the scripts it declares."}
+```
+error[script_not_found]: @api has no script called intall
+
+remedy: Run bp project show @api to see the scripts it declares.
 ```
 
 ### The project is not in this plane
 
 Exit `2`.
 
-```json
-{"error":"project_not_in_plane","code":2,"message":"@web is not a member of bp-a3f9c2e1","problems":[],"remedy":"Run bp show to see the members of this plane."}
+```
+error[project_not_in_plane]: @web is not a member of bp-a3f9c2e1
+
+remedy: Run bp show to see the members of this plane.
 ```
 
 ## Exit codes

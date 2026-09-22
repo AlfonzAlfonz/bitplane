@@ -98,8 +98,10 @@ $ bp project rename @codestyle style
 
 Exit `2`. Nothing has been touched.
 
-```json
-{"error":"project_name_taken","code":2,"message":"style is already a different project","problems":[],"remedy":"Choose another name, or rename that project first."}
+```
+error[project_name_taken]: style is already a different project
+
+remedy: Choose another name, or rename that project first.
 ```
 
 "a **different** project" is load-bearing: `bp project rename @style style` is
@@ -110,8 +112,12 @@ not this error, it is [the converge command](#converging).
 Exit `5`. The locks are all taken before anything moves, so a busy plane stops
 the rename before it starts rather than partway through.
 
-```json
-{"error":"lock_timeout","code":5,"message":"timed out waiting for the lock on ~/planes/auth-work/.bitplane/lock","problems":[{"subject":"~/planes/auth-work/.bitplane/lock","message":"is locked by another process"}],"remedy":"Another bitplane process holds it; retry once that one finishes."}
+```
+error[lock_timeout]: timed out waiting for the lock on ~/planes/auth-work/.bitplane/lock
+
+  ~/planes/auth-work/.bitplane/lock  is locked by another process
+
+remedy: Another bitplane process holds it; retry once that one finishes.
 ```
 
 ### A repair fails in one plane
@@ -122,8 +128,12 @@ Exit `1`. The directory has already moved, so the project now answers to
 [`bp repair`](../plane/repair.md) in each named plane — both converge on the
 same state.
 
-```json
-{"error":"repair_failed","code":1,"message":"@style was renamed; 1 of 2 planes could not be repaired","problems":[{"subject":"auth-work","message":"git worktree repair: permission denied"}],"remedy":"Fix what the rows report, then run bp project rename @style style again; repairing is idempotent."}
+```
+error[repair_failed]: @style was renamed; 1 of 2 planes could not be repaired
+
+  auth-work  git worktree repair: permission denied
+
+remedy: Fix what the rows report, then run bp project rename @style style again; repairing is idempotent.
 ```
 
 ## Exit codes

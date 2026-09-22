@@ -93,7 +93,9 @@ guessing:
 $ bp create ~/projects/weird:name -b feat-x
 ```
 ```
-{"error":"member_path_ambiguous","code":2,"message":"~/projects/weird:name could be a path or a member with a branch suffix","problems":[],"remedy":"Register it with `bp project adopt` and use its @name instead."}
+error[member_path_ambiguous]: ~/projects/weird:name could be a path or a member with a branch suffix
+
+remedy: Register it with `bp project adopt` and use its @name instead.
 ```
 
 `bp project adopt` takes a path and no branch, so it has no such ambiguity;

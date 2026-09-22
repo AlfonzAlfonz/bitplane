@@ -67,8 +67,10 @@ has gone missing.
 ```
 $ bp add @api:feat-other
 ```
-```json
-{"error":"duplicate_member","code":2,"message":"@api is already a member of bp-a3f9c2e1","problems":[],"remedy":"Run bp rm @api, then bp add @api:feat-other."}
+```
+error[duplicate_member]: @api is already a member of bp-a3f9c2e1
+
+remedy: Run bp rm @api, then bp add @api:feat-other.
 ```
 
 Two commands, deliberately. It is the same strictness `create` has, and it makes
@@ -83,8 +85,12 @@ blocks for up to 120 seconds before giving up.
 $ bp add @docs:feat-login
 waiting for bp-a3f9c2e1…
 ```
-```json
-{"error":"lock_timeout","code":5,"message":"timed out waiting for the lock on ~/planes/bp-a3f9c2e1/.bitplane/lock","problems":[{"subject":"~/planes/bp-a3f9c2e1/.bitplane/lock","message":"is locked by another process"}],"remedy":"Another bitplane process holds it; retry once that one finishes."}
+```
+error[lock_timeout]: timed out waiting for the lock on ~/planes/bp-a3f9c2e1/.bitplane/lock
+
+  ~/planes/bp-a3f9c2e1/.bitplane/lock  is locked by another process
+
+remedy: Another bitplane process holds it; retry once that one finishes.
 ```
 
 `5` means **try again** and nothing else: when the other process finishes, the
@@ -97,8 +103,10 @@ disk, orphaned and invisible.
 Exit `1`. A latched plane is on its way to being discarded, so `add` declines
 and points at the one verb that clears it.
 
-```json
-{"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
+```
+error[plane_incomplete]: bp-a3f9c2e1 was never finished being created
+
+remedy: Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it.
 ```
 
 Refusing here is what keeps [`bp destroy`](./destroy.md#a-plane-that-was-never-finished-being-created)'s
@@ -109,8 +117,12 @@ the latch's promise that *nothing in here is yours* would become a trapdoor.
 
 Exit `1`. The plane returns to its prior state.
 
-```json
-{"error":"add_aborted","code":1,"message":"add did not finish; bp-a3f9c2e1 is unchanged","problems":[{"subject":"@docs","message":"failed: could not fetch origin: Connection refused"}],"remedy":"Fix what the rows report, then run bp add again."}
+```
+error[add_aborted]: add did not finish; bp-a3f9c2e1 is unchanged
+
+  @docs  failed: could not fetch origin: Connection refused
+
+remedy: Fix what the rows report, then run bp add again.
 ```
 
 **`add` never sets the incomplete latch**, under any failure. The latch means

@@ -81,6 +81,41 @@ Sketch: `prototypes/06-engine-contract/` (throwaway; `cargo test` passes)
 > wins, with no planes-directory constraint — and it resolves to a **plane
 > only**, never to a member.
 
+> **Amended by implementation ticket 04 in one place: the envelope is the
+> contract, JSON is one rendering of it.**
+>
+> The decision below says the `ErrorEnvelope` is "constructed in `bitplane-core`,
+> so the JSON written to stderr is byte-identical across the CLI, a future MCP
+> surface, and the SSH servant". The *construction* claim stands and is
+> load-bearing. The clause that follows — that a failure is always rendered as
+> JSON, whether or not `--json` was passed — was never argued here. It was
+> inherited from `wkt` via ticket 01, and it is wrong for the CLI on two counts
+> this ADR could not see:
+>
+> 1. **ADR-0007 made stderr a human stream, and this ADR did not notice.** Script
+>    output is merged and streamed live onto bitplane's stderr, explicitly
+>    reasoning that "a `pnpm` banner inside the JSON is a broken contract". A
+>    JSON line arriving after a multi-megabyte `pnpm install` log is unparseable
+>    for exactly that reason, so the rendering bought no machine consumer
+>    anything. The two ADRs were in direct contradiction.
+> 2. **It defeated a property the design deliberately built.** The refusal remedy
+>    names exactly the reasons raised, in table order, *so it can be pasted* —
+>    and it cannot be pasted out of a JSON string literal.
+>
+> **The rendering now follows the mode**: human by default, JSON under `--json`.
+> The envelope stays on **stderr** in both, because the stream is decided by what
+> the output is and the rendering by the mode; stdout carries results only, so
+> `bp list --json | jq` never receives an error object where it expected a list.
+> `--json` is the only switch — there is **no TTY detection**, so redirecting
+> never changes the bytes.
+>
+> Every line of the human rendering maps to exactly one envelope field
+> (`error[<tag>]: <message>`, one indented row per problem, `remedy: <sentence>`),
+> which is what keeps the two renderings from drifting and lets ticket 08 assert
+> both from one fixture. `code` is not printed; it is the exit status.
+>
+> Exact shape on `website/docs/reference/refusals-and-waivers.md`.
+
 ## Context
 
 "Machine contract first; the human CLI renders it" has been settled since

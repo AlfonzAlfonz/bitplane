@@ -79,16 +79,20 @@ bp-a3f9c2e1 is now auth-work
 
 Exit `1`. Renaming a plane headed for deletion is meaningless work.
 
-```json
-{"error":"plane_incomplete","code":1,"message":"bp-a3f9c2e1 was never finished being created","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it."}
+```
+error[plane_incomplete]: bp-a3f9c2e1 was never finished being created
+
+remedy: Nothing in it is yours; run bp destroy -p bp-a3f9c2e1 to clear it.
 ```
 
 ### The new id is taken
 
 Exit `2`.
 
-```json
-{"error":"plane_id_in_use","code":2,"message":"auth-work is already a plane","problems":[],"remedy":"Choose another id, or destroy the existing plane first."}
+```
+error[plane_id_in_use]: auth-work is already a plane
+
+remedy: Choose another id, or destroy the existing plane first.
 ```
 
 ## Exit codes

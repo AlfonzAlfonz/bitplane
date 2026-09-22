@@ -110,8 +110,10 @@ actually there.
 ```
 $ bp create @api -b feat-login --id auth-work
 ```
-```json
-{"error":"plane_id_in_use","code":2,"message":"auth-work exists but was never completed","problems":[],"remedy":"Nothing in it is yours; run bp destroy -p auth-work to clear it."}
+```
+error[plane_id_in_use]: auth-work exists but was never completed
+
+remedy: Nothing in it is yours; run bp destroy -p auth-work to clear it.
 ```
 
 ### git is too old
@@ -122,8 +124,10 @@ half-built.
 ```
 $ bp create @api -b feat-login
 ```
-```json
-{"error":"git_too_old","code":4,"message":"git 2.35.9 is too old; bitplane requires git 2.36 or newer","problems":[],"remedy":"Upgrade git to 2.36 or newer."}
+```
+error[git_too_old]: git 2.35.9 is too old; bitplane requires git 2.36 or newer
+
+remedy: Upgrade git to 2.36 or newer.
 ```
 
 ### A member fails partway through
@@ -134,8 +138,13 @@ plane directory is removed, and the rows ride inside the error.
 ```
 $ bp create @api @web @docs -b feat-login
 ```
-```json
-{"error":"create_aborted","code":1,"message":"create did not finish; bp-a3f9c2e1 was removed","problems":[{"subject":"@web","message":"failed: could not fetch origin: Connection refused"},{"subject":"@docs","message":"skipped: aborted after an earlier failure"}],"remedy":"Nothing was left behind. Fix what the rows report, then run bp create again."}
+```
+error[create_aborted]: create did not finish; bp-a3f9c2e1 was removed
+
+  @web   failed: could not fetch origin: Connection refused
+  @docs  skipped: aborted after an earlier failure
+
+remedy: Nothing was left behind. Fix what the rows report, then run bp create again.
 ```
 
 `@api` succeeded and is not in `problems`; it was unwound with the rest. The
@@ -166,8 +175,12 @@ bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 Exit `1`, and the plane is **kept**. Scripts run after the point of no return,
 so a failure there unwinds nothing — but exiting `0` would hide it.
 
-```json
-{"error":"script_failed","code":1,"message":"install exited 1 in @api; the worktree was created","problems":[{"subject":"@api","message":"install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log"}],"remedy":"See the log, fix the cause, then run bp run @api install."}
+```
+error[script_failed]: install exited 1 in @api; the worktree was created
+
+  @api  install exited 1; see ~/planes/bp-a3f9c2e1/.bitplane/logs/20260921T140312Z-api-install.log
+
+remedy: See the log, fix the cause, then run bp run @api install.
 ```
 
 ## Exit codes

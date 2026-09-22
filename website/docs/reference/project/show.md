@@ -111,16 +111,20 @@ Exit `1`. A misspelled toggle in a hand-written file fails loudly here and at
 [`bp doctor`](../plane/doctor.md), not only when a plane is created and your
 worktree comes out subtly wrong.
 
-```json
-{"error":"parse_error","code":1,"message":"~/.local/share/bitplane/projects/api/project.toml: unknown key \"post_worktree_created\" in [scripts.install]","problems":[],"remedy":"Legal keys are argv, shell, post_worktree_create and pre_worktree_remove."}
+```
+error[parse_error]: ~/.local/share/bitplane/projects/api/project.toml: unknown key "post_worktree_created" in [scripts.install]
+
+remedy: Legal keys are argv, shell, post_worktree_create and pre_worktree_remove.
 ```
 
 ### No such project
 
 Exit `2`.
 
-```json
-{"error":"project_not_found","code":2,"message":"there is no project called codestyle","problems":[],"remedy":"Run bp project list to see what projects exist."}
+```
+error[project_not_found]: there is no project called codestyle
+
+remedy: Run bp project list to see what projects exist.
 ```
 
 ## Exit codes

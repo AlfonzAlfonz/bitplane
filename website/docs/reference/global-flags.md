@@ -16,7 +16,7 @@ on the individual command pages; they link back to it.
 | `--planes-dir <path>` | a directory | Where plane directories live for this invocation. |
 | `--projects-dir <path>` | a directory | Where project directories live for this invocation. |
 | `--config <path>` | a file | The config file to read instead of the default. |
-| `--json` | — | Write the machine response to stdout instead of the human rendering. See [`--json`](#--json) below. |
+| `--json` | — | Render machine output instead of human output — the response on stdout, a failure on stderr. See [`--json`](#--json) below. |
 | `-h`, `--help` | — | Print help for the command and exit `0`. |
 | `-V`, `--version` | — | Print `bp <version>` and exit `0`. |
 
@@ -128,17 +128,31 @@ some of them did not.
 
 ## `--json`
 
-`--json` writes the machine response to stdout as a single JSON value and
-suppresses the human rendering. The exit code is unchanged.
+`--json` selects the **machine rendering** for everything the command prints: the
+response as a single JSON value on stdout, and a failure as one line of JSON on
+stderr. Without it, both are rendered for a human. The exit code is unchanged
+either way.
 
 **The payload is out of scope for this page.** It is the serialisation of the
 core request/response types, and documenting a second copy of it here would
 guarantee the two disagree. What is fixed, and is a contract:
 
-- **stdout carries results only.** No progress, no script output, no warnings.
-- **Failures go to stderr as one line of JSON**, whether or not `--json` was
-  passed — the [error envelope](./refusals-and-waivers.md#the-error-envelope).
+- **The stream is decided by what the output is, the rendering by the mode.**
+  Results go to stdout, failures to stderr, in both modes. Only the rendering
+  changes.
+- **stdout carries results only.** No progress, no script output, no warnings,
+  and no errors — so `bp list --json | jq` never receives an error object where
+  it expected a list of planes. It gets empty input, and the exit code.
+- **Failures are always the [error
+  envelope](./refusals-and-waivers.md#the-error-envelope)**, built in
+  `bitplane-core`. The two renderings carry the same five fields, so nothing is
+  reported to a human that a machine cannot read, or the reverse.
 - The envelope's `code` field is the number the process exits with.
+
+`--json` is the **only** switch. `bp` does not check whether stderr is a
+terminal, so piping or redirecting never changes the bytes you would have seen
+on screen — the same discipline that makes every branch explicit and every
+waiver named.
 
 ## Environment variables
 

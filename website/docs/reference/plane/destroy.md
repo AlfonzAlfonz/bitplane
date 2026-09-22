@@ -80,8 +80,14 @@ comes back at once, so one re-run with the right waivers finishes the job.
 ```
 $ bp destroy
 ```
-```json
-{"error":"refused","code":1,"message":"refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost","problems":[{"subject":"@api","message":"feat-login has uncommitted changes"},{"subject":"@api","message":"feat-login has commits that are not on origin"},{"subject":"@web","message":"feat-login has untracked files"}],"remedy":"Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work."}
+```
+error[refused]: refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost
+
+  @api  feat-login has uncommitted changes
+  @api  feat-login has commits that are not on origin
+  @web  feat-login has untracked files
+
+remedy: Inspect the members listed. Re-run with --waive uncommitted --waive untracked --waive unpushed to accept losing that work.
 ```
 
 The remedy names exactly the reasons that were raised, so it can be pasted.
@@ -110,8 +116,12 @@ That property is why [`bp add` never sets the latch](./add.md#the-run-aborts).
 
 Exit `1`, and nothing is removed.
 
-```json
-{"error":"script_blocked","code":1,"message":"stop-stack exited 1 in @api; nothing was removed","problems":[{"subject":"@api","message":"stop-stack exited 1"}],"remedy":"Fix the script, or re-run with --no-scripts."}
+```
+error[script_blocked]: stop-stack exited 1 in @api; nothing was removed
+
+  @api  stop-stack exited 1
+
+remedy: Fix the script, or re-run with --no-scripts.
 ```
 
 `--no-scripts` always works, which is the whole answer to *can a `project.toml`
