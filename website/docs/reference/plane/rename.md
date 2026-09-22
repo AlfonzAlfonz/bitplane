@@ -4,6 +4,13 @@ title: bp rename
 
 # `bp rename`
 
+:::not-implemented
+
+`bp rename` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Give a plane a different id, which means moving its directory.
 
 ```

@@ -51,6 +51,15 @@ const config = {
           // The docs are the site; there is no marketing landing page.
           routeBasePath: '/',
           editUrl: `https://github.com/${owner}/${repo}/tree/main/website/`,
+          // Three status admonitions on top of the theme's own set, one per
+          // state a reference page can be in. Rendered by
+          // `src/theme/Admonition/Type/Status.js`, which is where the colours
+          // and icons live; a keyword listed here and missing there degrades
+          // to `info` with a warning rather than failing the build.
+          admonitions: {
+            extendDefaults: true,
+            keywords: ['implemented', 'in-progress', 'not-implemented'],
+          },
         },
         blog: false,
         theme: {

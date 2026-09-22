@@ -4,6 +4,20 @@ title: bp create
 
 # `bp create`
 
+:::in-progress
+
+Ad-hoc members are built end to end: the claim, the latch, `plane.toml`,
+the abort window, branch intent, generated and chosen ids, the unwind and
+Ctrl-C all behave as described. Two parts are not there yet:
+
+- **`@project` members are refused.** Projects can be registered, but a
+  plane cannot hold one yet, so every member must be a path.
+- **`--no-fetch` and `--no-scripts` are not accepted.** Nothing is fetched
+  before the worktrees are built, and no `post_worktree_create` script
+  runs, so there is nothing to switch off.
+
+:::
+
 Create a plane and the worktrees of every member named on the command line.
 
 ```

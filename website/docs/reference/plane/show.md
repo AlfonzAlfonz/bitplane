@@ -4,6 +4,14 @@ title: bp show
 
 # `bp show`
 
+:::implemented
+
+Everything on this page works as described. A plane can only hold [ad-hoc
+members](../member-syntax.md#paths) today, so the `@project` rows in the
+examples below cannot occur yet — see [`bp create`](./create.md).
+
+:::
+
 Everything about one plane: its members, where they are, what branch each is on,
 and any finding against it.
 

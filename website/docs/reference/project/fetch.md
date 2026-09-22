@@ -4,6 +4,12 @@ title: bp project fetch
 
 # `bp project fetch`
 
+:::implemented
+
+Everything on this page works as described.
+
+:::
+
 Bring an owned project's source repo up to date with its forge.
 
 ```

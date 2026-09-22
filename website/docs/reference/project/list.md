@@ -4,6 +4,12 @@ title: bp project list
 
 # `bp project list`
 
+:::implemented
+
+Everything on this page works as described.
+
+:::
+
 Every project registered on this host.
 
 ```

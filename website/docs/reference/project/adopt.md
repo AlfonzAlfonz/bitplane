@@ -4,6 +4,13 @@ title: bp project adopt
 
 # `bp project adopt`
 
+:::not-implemented
+
+`bp project adopt` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Register a checkout you already have, in place.
 
 ```

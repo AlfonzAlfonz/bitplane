@@ -4,6 +4,13 @@ title: bp doctor
 
 # `bp doctor`
 
+:::not-implemented
+
+`bp doctor` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Find what nothing else can see.
 
 ```

@@ -4,6 +4,13 @@ title: bp project rm
 
 # `bp project rm`
 
+:::not-implemented
+
+`bp project rm` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Unregister a project and delete everything `bp` built for it.
 
 ```

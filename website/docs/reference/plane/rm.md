@@ -4,6 +4,19 @@ title: bp rm
 
 # `bp rm`
 
+:::in-progress
+
+The fan-out, the five refusals, `--waive` and the converging
+`already gone` row all work. Two parts are not there yet:
+
+- **No branch is ever deleted.** Branch deletion happens only for owned
+  projects, and a plane cannot hold one yet, so every member is treated
+  as a repo `bp` does not own.
+- **`--no-scripts` is not accepted.** No `pre_worktree_remove` script
+  runs, so there is nothing to skip.
+
+:::
+
 Take one member out of a plane, leaving the rest of the plane alone.
 
 ```

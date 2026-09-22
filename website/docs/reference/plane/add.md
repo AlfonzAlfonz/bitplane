@@ -4,6 +4,13 @@ title: bp add
 
 # `bp add`
 
+:::not-implemented
+
+`bp add` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Put one or more members into a plane that already exists.
 
 ```

@@ -4,6 +4,12 @@ title: bp project add
 
 # `bp project add`
 
+:::implemented
+
+Everything on this page works as described.
+
+:::
+
 Register a project from a URL, building the source repo `bp` will own.
 
 ```

@@ -4,6 +4,13 @@ title: bp project rename
 
 # `bp project rename`
 
+:::not-implemented
+
+`bp project rename` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Give a project a different name, and fix every plane that holds it.
 
 ```

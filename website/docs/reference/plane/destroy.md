@@ -4,6 +4,19 @@ title: bp destroy
 
 # `bp destroy`
 
+:::in-progress
+
+Teardown, the incomplete latch, the five refusals and `--waive` all work.
+Two parts are not there yet:
+
+- **No branch is ever deleted.** Branch deletion happens only for owned
+  projects, and a plane cannot hold one yet, so every member is treated
+  as a repo `bp` does not own.
+- **`--no-scripts` is not accepted.** No `pre_worktree_remove` script
+  runs, so there is nothing to skip.
+
+:::
+
 Remove every worktree in a plane and the plane directory with them.
 
 ```

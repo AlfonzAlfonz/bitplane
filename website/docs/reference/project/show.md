@@ -4,6 +4,13 @@ title: bp project show
 
 # `bp project show`
 
+:::not-implemented
+
+`bp project show` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Everything about one project: its kind, its source, the branch a new worktree
 would land on, when it was last fetched, and every script it declares.
 

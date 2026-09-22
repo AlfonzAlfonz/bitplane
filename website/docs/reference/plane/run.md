@@ -4,6 +4,13 @@ title: bp run
 
 # `bp run`
 
+:::not-implemented
+
+`bp run` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Run a project's declared scripts, by name, on demand.
 
 ```

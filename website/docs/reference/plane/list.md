@@ -4,6 +4,14 @@ title: bp list
 
 # `bp list`
 
+:::implemented
+
+Everything on this page works as described. A plane can only hold [ad-hoc
+members](../member-syntax.md#paths) today, so the `@project` rows in the
+examples below cannot occur yet — see [`bp create`](./create.md).
+
+:::
+
 Every plane on this host, with its members, their live branches and its health.
 
 ```

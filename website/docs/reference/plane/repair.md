@@ -4,6 +4,13 @@ title: bp repair
 
 # `bp repair`
 
+:::not-implemented
+
+`bp repair` does not exist yet. This page is the specification it is being built
+against, not a description of the binary.
+
+:::
+
 Reconnect a plane's worktrees to their source repos after something moved.
 
 ```
