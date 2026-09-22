@@ -21,16 +21,21 @@ This is the sharpest asymmetry in the design, and it is deliberate: **`bp` owns
 the refs and the config in a repo it built, and owns nothing in a repo it merely
 pointed at.**
 
-| | owned | adopted |
+| `bp` … | owned | adopted |
 | --- | --- | --- |
 | writes `push.default` and the refspec | yes | **no** |
 | deletes the member's branch on `destroy` | yes | **no** |
-| has something to fetch | yes | **no** |
-| occupies a branch | no, it is bare | **yes**, whatever your working tree is on |
-| `refs/heads/*` is exactly the plane branches | yes | **no**, they are your branches |
+| has anything to fetch | yes | **no** |
 
 With nothing stored, `bp` **cannot tell** whether a branch in your repo is one
 it created or one you have had for two years. So it touches none of them.
+
+The two are also shaped differently, and that shows at
+[`bp create`](../plane/create.md) time. An owned repo is bare: no working tree,
+so it holds no branch, and everything under `refs/heads/*` is a plane branch
+`bp` put there. Your checkout is the opposite — it sits on a branch of its own,
+among branches that are all yours. That is why only an adopted project can hit
+[`branch_occupied`](#your-checkout-is-sitting-on-the-branch-a-plane-wants).
 
 ## Arguments
 
@@ -90,8 +95,7 @@ and `bp` reports it in its own words rather than passing git's message through.
 {"error":"branch_occupied","code":1,"message":"main is already checked out in /Users/alfonz/projects/bitplane","problems":[{"subject":"/Users/alfonz/projects/bitplane","message":"its working tree is on main"}],"remedy":"Check out a different branch there, or give this member a branch no worktree holds."}
 ```
 
-This cannot happen for an owned project: a bare repo has no working tree, so it
-occupies nothing.
+This cannot happen for an owned project, which holds no branch at all.
 
 ### The path is not a git repository
 
