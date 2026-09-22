@@ -41,7 +41,7 @@ accidentally override the one you did not mean to.
 3. Remove each worktree, deleting its branch where the member is an owned
    project — see [branch deletion](./rm.md#branch-deletion).
 4. Delete `plane.toml`.
-5. `rmdir` the plane directory.
+5. Remove the plane directory and everything left in it.
 
 `plane.toml` is the **first thing written** by `create` and the **last thing
 removed** here, so the window in which a plane is visible strictly contains the
@@ -63,9 +63,9 @@ $ bp destroy
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @api   feat-login  removed  acme/api (branch deleted)
-  @web   feat-login  removed  acme/web (branch deleted)
-  @docs  -           already gone  acme/docs
+  @api   feat-login  removed       acme/api (branch deleted)
+  @web   feat-login  removed       acme/web (branch deleted)
+  @docs  -           already gone  -
 
 destroyed bp-a3f9c2e1
 ```

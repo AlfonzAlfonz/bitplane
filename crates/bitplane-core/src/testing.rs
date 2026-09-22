@@ -50,6 +50,30 @@ pub fn repository_with_one_commit(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// A repository with one commit on `main`, and an `origin` at `forge` that
+/// already has it.
+///
+/// The `unpushed` check asks whether a tip is contained in **any**
+/// `refs/remotes/origin/*`, so a repository with no origin at all has every
+/// branch unpushed — correct, and useless as a fixture for anything else.
+pub fn repository_with_an_origin(path: &Path, forge: &Path) -> PathBuf {
+    fs::create_dir_all(forge).expect("create the forge directory");
+    git(
+        forge,
+        &["init", "--bare", "--quiet", "--initial-branch", "main"],
+    );
+
+    let repository = repository_with_one_commit(path);
+    git(
+        &repository,
+        &["remote", "add", "origin", &forge.display().to_string()],
+    );
+    git(&repository, &["push", "--quiet", "origin", "main"]);
+    git(&repository, &["fetch", "--quiet", "origin"]);
+
+    repository
+}
+
 /// Runs a git command in `repository`, panicking with git's own words if it
 /// fails — a broken fixture must not read as a bitplane bug.
 pub fn git(repository: &Path, args: &[&str]) -> String {

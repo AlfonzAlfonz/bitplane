@@ -20,6 +20,7 @@ use crate::member::{MemberRef, PROJECT_SIGIL, ProjectName, WorktreePath};
 use crate::outcome::{Outcome, PerMember, PerProject};
 use crate::plane_id::PlaneId;
 use crate::project_file::ProjectSource;
+use crate::refusal::Reason;
 
 /// One user intent.
 ///
@@ -43,6 +44,10 @@ pub enum Request {
     ProjectList,
     /// Bring owned projects' source repos up to date with their forges.
     ProjectFetch(ProjectFetchRequest),
+    /// Take a whole plane apart.
+    PlaneDestroy(PlaneDestroyRequest),
+    /// Take named members out of a plane, leaving the rest alone.
+    PlaneRemove(PlaneRemoveRequest),
 }
 
 /// One answer. Never a scalar count: a fan-out answers with a vector of keyed
@@ -57,6 +62,8 @@ pub enum Response {
     ProjectAdd(ProjectAdded),
     ProjectList(ProjectListing),
     ProjectFetch(ProjectFetched),
+    PlaneDestroy(PlaneDestroyed),
+    PlaneRemove(PlaneRemoved),
 }
 
 impl Response {
@@ -67,7 +74,12 @@ impl Response {
     /// stdout either way, and only the exit code says to look at it (ADR-0003).
     pub fn has_findings(&self) -> bool {
         match self {
-            Response::PlaneCreate(_) => false,
+            // Neither a teardown nor a build reports drift: both say what they
+            // did in their rows, and a failure is an envelope rather than an
+            // exit code to look up.
+            Response::PlaneCreate(_) | Response::PlaneDestroy(_) | Response::PlaneRemove(_) => {
+                false
+            }
             Response::PlaneList(list) => {
                 list.planes.iter().any(|plane| plane.health.has_findings())
             }
@@ -393,6 +405,70 @@ impl ProjectFetched {
     }
 }
 
+/// Take a whole plane apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaneDestroyRequest {
+    pub plane: PlaneRef,
+    /// The reasons this invocation accepts losing work over. Granted per reason
+    /// and per invocation; there is no blanket force flag.
+    pub waive: Vec<Reason>,
+}
+
+/// Take named members out of a plane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaneRemoveRequest {
+    pub plane: PlaneRef,
+    /// The members, as written: `@name`, or a path. No branch suffix — a member
+    /// is already on a branch.
+    pub members: Vec<String>,
+    pub waive: Vec<Reason>,
+}
+
+/// A plane that was taken apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaneDestroyed {
+    /// The **directory's name**, which is the plane's identity — a string for
+    /// the same reason [`PlaneView`]'s is: a directory a user made by hand need
+    /// not be a well-formed id, and refusing to name one would make it
+    /// impossible to destroy.
+    pub id: String,
+    pub directory: PathBuf,
+    /// One row per member, in `plane.toml` order.
+    pub members: Vec<PerMember<RemovedMember>>,
+    /// Whether `create` had never completed, so no refusal check ran at all —
+    /// every reason is structurally impossible on a latched plane.
+    pub incomplete: bool,
+    /// Whether Ctrl-C stopped the run. `destroy` converges, so the rows are
+    /// what is left to do rather than something to unwind.
+    pub interrupted: bool,
+}
+
+/// Members that were taken out of a plane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaneRemoved {
+    pub id: String,
+    pub directory: PathBuf,
+    /// One row per member **named**, in the order they were named.
+    pub members: Vec<PerMember<RemovedMember>>,
+    pub interrupted: bool,
+}
+
+/// One member's worktree, gone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemovedMember {
+    /// The branch the worktree was on, absent where it was detached or where
+    /// the source repo could not be asked.
+    pub branch: Option<String>,
+    /// Where the worktree was, relative to the plane directory.
+    pub path: WorktreePath,
+    /// Whether the branch went with it. Never for a repo bitplane does not
+    /// own — which, with ad-hoc members only, is every member today (ADR-0006).
+    pub branch_deleted: bool,
+    /// The reasons that were raised for this member and waived, so a forced
+    /// destruction is visible in a transcript.
+    pub waived: Vec<Reason>,
+}
+
 /// Runs one request against one engine.
 pub fn dispatch<E: Engine + ?Sized>(engine: &E, request: Request) -> Result<Response, EngineError> {
     match request {
@@ -403,6 +479,8 @@ pub fn dispatch<E: Engine + ?Sized>(engine: &E, request: Request) -> Result<Resp
         Request::ProjectAdd(request) => engine.project_add(request).map(Response::ProjectAdd),
         Request::ProjectList => Reader::project_list(engine).map(Response::ProjectList),
         Request::ProjectFetch(request) => engine.project_fetch(request).map(Response::ProjectFetch),
+        Request::PlaneDestroy(request) => engine.plane_destroy(request).map(Response::PlaneDestroy),
+        Request::PlaneRemove(request) => engine.plane_remove(request).map(Response::PlaneRemove),
     }
 }
 
@@ -422,6 +500,22 @@ mod tests {
         let json = serde_json::to_string(&request).unwrap();
 
         assert!(json.contains(r#""action":"plane_create""#), "got {json}");
+        assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), request);
+    }
+
+    #[test]
+    fn a_destroy_request_round_trips_carrying_its_waivers() {
+        let request = Request::PlaneDestroy(PlaneDestroyRequest {
+            plane: PlaneRef::Id {
+                id: "auth-work".to_owned(),
+            },
+            waive: vec![Reason::Uncommitted, Reason::Unpushed],
+        });
+
+        let json = serde_json::to_string(&request).unwrap();
+
+        assert!(json.contains(r#""action":"plane_destroy""#), "got {json}");
+        assert!(json.contains(r#""uncommitted""#), "got {json}");
         assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), request);
     }
 

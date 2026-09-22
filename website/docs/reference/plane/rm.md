@@ -92,7 +92,7 @@ $ bp rm @docs
 ```
 bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
 
-  @docs  -  already gone  acme/docs
+  @docs  -  already gone  -
 ```
 
 ## Examples

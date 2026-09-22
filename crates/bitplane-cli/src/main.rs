@@ -13,9 +13,9 @@ use std::path::PathBuf;
 
 use bitplane_core::{
     BranchIntent, Directories, DirectoryOverrides, EngineError, ErrorEnvelope, HealthCheck,
-    Interrupt, LocalEngine, PlaneCreateRequest, PlaneListRequest, PlaneRef, PlaneShowRequest,
-    PlaneStatusRequest, ProjectAddRequest, ProjectFetchRequest, Request, Response,
-    SystemEnvironment, Termination, dispatch,
+    Interrupt, LocalEngine, PlaneCreateRequest, PlaneDestroyRequest, PlaneListRequest, PlaneRef,
+    PlaneRemoveRequest, PlaneShowRequest, PlaneStatusRequest, ProjectAddRequest,
+    ProjectFetchRequest, Reason, Request, Response, SystemEnvironment, Termination, dispatch,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use render::Rendering;
@@ -72,6 +72,12 @@ enum Command {
     Show(ShowArgs),
     /// Report git's own status across every member of a plane.
     Status(StatusArgs),
+
+    /// Remove every worktree in a plane and the plane directory with them.
+    Destroy(DestroyArgs),
+
+    /// Take members out of a plane, leaving the rest of the plane alone.
+    Rm(RemoveArgs),
 
     /// Manage the projects registered on this host.
     #[command(subcommand)]
@@ -155,6 +161,29 @@ struct StatusArgs {
     plane: PlaneArgs,
 }
 
+#[derive(Debug, Args)]
+struct DestroyArgs {
+    #[command(flatten)]
+    plane: PlaneArgs,
+
+    #[command(flatten)]
+    waive: WaiveArg,
+}
+
+#[derive(Debug, Args)]
+struct RemoveArgs {
+    /// The members to take out: `@name` for a project, a path for an ad-hoc
+    /// member. No branch suffix — a member is already on a branch.
+    #[arg(required = true, value_name = "member")]
+    members: Vec<String>,
+
+    #[command(flatten)]
+    plane: PlaneArgs,
+
+    #[command(flatten)]
+    waive: WaiveArg,
+}
+
 /// How a command that acts on an existing plane is aimed.
 ///
 /// **A plane is never a positional argument.** Positional slots hold members,
@@ -194,6 +223,17 @@ impl From<HealthLevel> for HealthCheck {
             HealthLevel::Full => HealthCheck::Full,
         }
     }
+}
+
+/// The waivers, granted per reason and per invocation.
+///
+/// There is deliberately **no `--force`**: every reason is waived by name, so a
+/// waiver can never override the refusal you did not mean to.
+#[derive(Debug, Args)]
+struct WaiveArg {
+    /// Accept one refusal reason, for this invocation only. Repeatable.
+    #[arg(long = "waive", value_name = "reason", value_parser = waiver)]
+    waive: Vec<Reason>,
 }
 
 /// What one invocation amounts to: what it wrote to each stream, and how it
@@ -296,6 +336,8 @@ fn answer(command: Command, global: &GlobalFlags) -> Result<Response, EngineErro
 fn termination_for(response: &Response) -> Termination {
     match response {
         Response::PlaneCreate(created) if created.interrupted => Termination::Interrupted,
+        Response::PlaneDestroy(destroyed) if destroyed.interrupted => Termination::Interrupted,
+        Response::PlaneRemove(removed) if removed.interrupted => Termination::Interrupted,
         Response::ProjectFetch(fetched) if fetched.interrupted => Termination::Interrupted,
         // A fan-out reports its rows and its failure at once: the rows are the
         // result and go to stdout, and this says the run did not fully succeed.
@@ -378,6 +420,15 @@ fn request_for(command: Command) -> Request {
                 projects: args.projects,
             })
         }
+        Command::Destroy(args) => Request::PlaneDestroy(PlaneDestroyRequest {
+            plane: plane_ref(args.plane),
+            waive: args.waive.waive,
+        }),
+        Command::Rm(args) => Request::PlaneRemove(PlaneRemoveRequest {
+            plane: plane_ref(args.plane),
+            members: args.members,
+            waive: args.waive.waive,
+        }),
         Command::Create(args) => Request::PlaneCreate(PlaneCreateRequest {
             members: args.members,
             branch: args.branch,
@@ -408,6 +459,21 @@ fn plane_ref(args: PlaneArgs) -> PlaneRef {
             path: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         },
     }
+}
+
+/// One `--waive` value, checked here so a misspelled reason is a usage failure
+/// rather than a waiver that silently covers nothing.
+fn waiver(value: &str) -> Result<Reason, String> {
+    Reason::parse(value).map_err(|_| {
+        format!(
+            "expected one of {}",
+            Reason::ALL
+                .iter()
+                .map(|reason| reason.tag())
+                .collect::<Vec<&str>>()
+                .join(", ")
+        )
+    })
 }
 
 /// Clap renders a usage error as several lines; the envelope's `message` is one

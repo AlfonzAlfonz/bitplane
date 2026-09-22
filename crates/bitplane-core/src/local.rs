@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::create::{self, CreateContext};
+use crate::destroy::{self, TeardownContext};
 use crate::directories::{Directories, Environment, SystemEnvironment};
 use crate::engine::{Engine, Reader};
 use crate::error::EngineError;
@@ -14,7 +15,8 @@ use crate::project_list;
 use crate::read::{self, ReadContext};
 use crate::repo::Git;
 use crate::wire::{
-    PlaneCreateRequest, PlaneCreated, PlaneList, PlaneListRequest, PlaneShowRequest, PlaneStatus,
+    PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest, PlaneDestroyed, PlaneList,
+    PlaneListRequest, PlaneRemoveRequest, PlaneRemoved, PlaneShowRequest, PlaneStatus,
     PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded, ProjectFetchRequest,
     ProjectFetched, ProjectListing,
 };
@@ -115,6 +117,20 @@ impl Reader for LocalEngine {
     }
 }
 
+impl LocalEngine {
+    /// What the teardown verbs need that is not in the request. Both of them
+    /// take the same context, because they carry the same rules.
+    fn teardown(&self) -> TeardownContext<'_> {
+        TeardownContext {
+            directories: &self.directories,
+            git: &self.git,
+            home: self.home.as_deref(),
+            interrupt: self.interrupt,
+            on_lock_wait: &*self.on_lock_wait,
+        }
+    }
+}
+
 impl Engine for LocalEngine {
     fn plane_create(&self, request: PlaneCreateRequest) -> Result<PlaneCreated, EngineError> {
         create::plane_create(
@@ -150,6 +166,14 @@ impl Engine for LocalEngine {
                 on_lock_wait: &*self.on_lock_wait,
             },
         )
+    }
+
+    fn plane_destroy(&self, request: PlaneDestroyRequest) -> Result<PlaneDestroyed, EngineError> {
+        destroy::plane_destroy(&request, &self.teardown())
+    }
+
+    fn plane_remove(&self, request: PlaneRemoveRequest) -> Result<PlaneRemoved, EngineError> {
+        destroy::plane_remove(&request, &self.teardown())
     }
 }
 

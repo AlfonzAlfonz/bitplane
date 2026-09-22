@@ -10,6 +10,7 @@
 //! Windows, and that deferral binds exactly this one constraint.
 
 pub mod create;
+pub mod destroy;
 pub mod directories;
 pub mod engine;
 pub mod error;
@@ -32,6 +33,7 @@ pub mod project_fetch;
 pub mod project_file;
 pub mod project_list;
 pub mod read;
+pub mod refusal;
 pub mod repo;
 pub mod termination;
 pub mod time;
@@ -43,7 +45,7 @@ pub mod testing;
 
 pub use directories::{Directories, DirectoryOverrides, Environment, SystemEnvironment};
 pub use engine::{Engine, Reader};
-pub use error::{BranchWanted, EngineError, ErrorEnvelope, Occupant, Problem};
+pub use error::{BranchWanted, EngineError, ErrorEnvelope, Occupant, Problem, Teardown};
 pub use exit::ExitCode;
 pub use git::{
     GitPrerequisite, GitProbe, GitVersion, MINIMUM_GIT_VERSION, ProbeFailure, SystemGit,
@@ -57,10 +59,12 @@ pub use outcome::{Outcome, PerMember, PerProject, SkipReason};
 pub use plane_file::{Member, PlaneFile};
 pub use plane_id::PlaneId;
 pub use project_file::{ProjectFile, ProjectSource};
+pub use refusal::{Reason, Refusal, Waivers};
 pub use termination::Termination;
 pub use wire::{
     BranchIntent, CreatedMember, Fetched, MemberStatus, MemberView, MemberWork, PlaneCreateRequest,
-    PlaneCreated, PlaneList, PlaneListRequest, PlaneRef, PlaneShowRequest, PlaneStatus,
-    PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded, ProjectFetchRequest,
-    ProjectFetched, ProjectListing, ProjectSummary, Request, Response, dispatch,
+    PlaneCreated, PlaneDestroyRequest, PlaneDestroyed, PlaneList, PlaneListRequest, PlaneRef,
+    PlaneRemoveRequest, PlaneRemoved, PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView,
+    ProjectAddRequest, ProjectAdded, ProjectFetchRequest, ProjectFetched, ProjectListing,
+    ProjectSummary, RemovedMember, Request, Response, dispatch,
 };

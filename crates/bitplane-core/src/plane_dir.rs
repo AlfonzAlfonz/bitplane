@@ -104,12 +104,7 @@ impl ClaimedPlane {
     /// replaces the inode, so a lock on the data file would guard a file that
     /// no longer exists (ADR-0002).
     pub fn lock(&self, on_contended: impl FnOnce(&Path)) -> Result<Lock, EngineError> {
-        self.make_bitplane_dir()?;
-        Lock::acquire(
-            &self.path.join(BITPLANE_DIR).join(lock::SENTINEL_NAME),
-            lock::DEFAULT_TIMEOUT,
-            on_contended,
-        )
+        lock_plane(&self.path, on_contended)
     }
 
     /// Writes the latch, **before** the plane file.
@@ -155,14 +150,134 @@ impl ClaimedPlane {
     }
 
     fn latch_path(&self) -> PathBuf {
-        self.path.join(BITPLANE_DIR).join(LATCH_NAME)
+        latch_path(&self.path)
     }
 
     fn make_bitplane_dir(&self) -> Result<(), EngineError> {
-        let path = self.path.join(BITPLANE_DIR);
-
-        fs::create_dir_all(&path).map_err(|err| EngineError::io(&path, err))
+        make_bitplane_dir(&self.path)
     }
+}
+
+/// A plane directory that is already there.
+///
+/// The counterpart to [`ClaimedPlane`]: `create` claims a directory that must
+/// not exist, everything else opens one that must. Opening takes no lock and
+/// creates nothing — the caller decides whether it is about to write.
+#[derive(Debug, Clone)]
+pub struct OpenPlane {
+    id: String,
+    path: PathBuf,
+}
+
+impl OpenPlane {
+    /// The plane at an **already resolved** directory.
+    ///
+    /// Resolution itself is [`crate::read::resolve`]'s, not this type's: the
+    /// walk up to `plane.toml` is the same one `bp show` and `bp status` do, and
+    /// two implementations of "which plane is this?" would be two answers.
+    pub fn at(path: PathBuf) -> OpenPlane {
+        // The **directory's name**, which is the plane's identity — and held as
+        // a string rather than a `PlaneId` for the reason `read::named` gives:
+        // a directory a user made by hand need not be a well-formed id, and
+        // refusing to name one would make it impossible to destroy.
+        let id = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        OpenPlane { id, path }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Takes the plane's lock, on the sentinel rather than on `plane.toml`.
+    pub fn lock(&self, on_contended: impl FnOnce(&Path)) -> Result<Lock, EngineError> {
+        lock_plane(&self.path, on_contended)
+    }
+
+    /// Whether `create` claimed this plane and never finished.
+    ///
+    /// The latch means *nothing in here is yours*, which is what licenses a
+    /// `destroy` with no refusal checks at all — and what makes every other
+    /// verb decline and point at that one.
+    pub fn is_latched(&self) -> bool {
+        latch_path(&self.path).exists()
+    }
+
+    pub fn plane_file_path(&self) -> PathBuf {
+        self.path.join(PLANE_FILE_NAME)
+    }
+
+    /// The membership, where there is a file holding one.
+    ///
+    /// Absent rather than an error for a claimed directory with no plane file:
+    /// that is a state `create` can leave behind, and `destroy` has to be able
+    /// to clear it.
+    pub fn read_plane_file(&self) -> Result<Option<PlaneFile>, EngineError> {
+        let path = self.plane_file_path();
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        PlaneFile::read(&path).map(Some)
+    }
+
+    /// Writes the membership back, atomically.
+    pub fn write_plane_file_text(&self, text: &str) -> Result<(), EngineError> {
+        write_atomically(&self.plane_file_path(), text)
+    }
+
+    /// Unlinks `plane.toml` — the **last** thing removed, so the window in
+    /// which a plane is visible strictly contains the window in which it
+    /// exists (ADR-0004).
+    pub fn remove_plane_file(&self) -> Result<(), EngineError> {
+        let path = self.plane_file_path();
+
+        match fs::remove_file(&path) {
+            Ok(()) => fsio::sync_directory(&self.path),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(EngineError::io(&path, err)),
+        }
+    }
+
+    /// Removes the plane directory and everything left in it.
+    ///
+    /// Everything: anything no member names — scratch files, a notes file —
+    /// goes with it. The plane directory is the user's between `create` and
+    /// `destroy`, and `destroy` is the end of that.
+    pub fn remove_directory(&self) -> Result<(), EngineError> {
+        match fs::remove_dir_all(&self.path) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(EngineError::io(&self.path, err)),
+        }
+    }
+}
+
+fn lock_plane(plane: &Path, on_contended: impl FnOnce(&Path)) -> Result<Lock, EngineError> {
+    make_bitplane_dir(plane)?;
+    Lock::acquire(
+        &plane.join(BITPLANE_DIR).join(lock::SENTINEL_NAME),
+        lock::DEFAULT_TIMEOUT,
+        on_contended,
+    )
+}
+
+fn latch_path(plane: &Path) -> PathBuf {
+    plane.join(BITPLANE_DIR).join(LATCH_NAME)
+}
+
+fn make_bitplane_dir(plane: &Path) -> Result<(), EngineError> {
+    let path = plane.join(BITPLANE_DIR);
+
+    fs::create_dir_all(&path).map_err(|err| EngineError::io(&path, err))
 }
 
 /// What is at a plane directory that could not be claimed.
@@ -377,6 +492,44 @@ mod tests {
         claimed
             .discard()
             .expect("discarding twice is not a failure");
+    }
+
+    // Resolution itself — by id, by walking up from a path, innermost winning
+    // — is `read::resolve`'s and is tested against it in `tests/plane_read.rs`.
+    // What is left here is what `OpenPlane` itself owns.
+
+    #[test]
+    fn an_opened_plane_takes_its_id_from_the_directorys_own_name() {
+        let (directories, _) = somewhere("open-at");
+        let id = PlaneId::parse("auth-work").unwrap();
+        let claimed = ClaimedPlane::claim(&directories, id.clone()).unwrap();
+        claimed
+            .write_plane_file(&PlaneFile::new(id, Vec::new()))
+            .unwrap();
+
+        let open = OpenPlane::at(claimed.path().to_path_buf());
+
+        assert_eq!(open.id(), "auth-work");
+        assert_eq!(open.path(), claimed.path());
+        assert_eq!(open.read_plane_file().unwrap().unwrap().members.len(), 0);
+    }
+
+    #[test]
+    fn an_opened_plane_reports_the_latch_destroy_is_the_only_way_out_of() {
+        let (directories, _) = somewhere("open-latched");
+        let id = PlaneId::parse("auth-work").unwrap();
+        let claimed = ClaimedPlane::claim(&directories, id.clone()).unwrap();
+        claimed.latch().unwrap();
+        claimed
+            .write_plane_file(&PlaneFile::new(id, Vec::new()))
+            .unwrap();
+
+        let open = OpenPlane::at(claimed.path().to_path_buf());
+
+        assert!(open.is_latched());
+
+        claimed.unlatch().unwrap();
+        assert!(!OpenPlane::at(claimed.path().to_path_buf()).is_latched());
     }
 
     fn somewhere(label: &str) -> (Directories, PathBuf) {

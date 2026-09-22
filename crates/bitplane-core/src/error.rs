@@ -15,7 +15,8 @@ use crate::git::{GitVersion, MINIMUM_GIT_VERSION};
 use crate::member::PROJECT_SIGIL;
 use crate::outcome::{Outcome, PerMember};
 use crate::plane_id::GENERATED_ID_PREFIX;
-use crate::wire::{CreatedMember, PlaneRef};
+use crate::refusal::{Refusal, waive_flags};
+use crate::wire::{CreatedMember, PlaneRef, RemovedMember};
 
 /// What every bitplane failure looks like on the wire.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,6 +194,32 @@ pub enum EngineError {
         /// Whether the unwind itself failed, leaving a directory behind.
         remnant: bool,
     },
+    /// Work that would be lost. **Every** reason across **every** member, in
+    /// one error, because a half-destroyed plane is worse than a refused one —
+    /// so one re-run with the right waivers finishes the job.
+    Refused {
+        plane: String,
+        operation: Teardown,
+        /// How many members raised at least one surviving reason.
+        blocking: usize,
+        /// How many members were under consideration — the plane's, for
+        /// `destroy`; the ones named, for `rm`.
+        considered: usize,
+        refusals: Vec<Refusal>,
+    },
+    /// A plane `create` claimed and never finished. Acting on one is meaningless
+    /// work on a thing headed for deletion, so every verb but `destroy` declines
+    /// and points at the one that clears it.
+    PlaneIncomplete { id: String },
+    /// A member that is not in this plane.
+    ProjectNotInPlane { member: String, plane: String },
+    /// Worktrees this run could not remove. The rows ride inside the error,
+    /// because `destroy` converges: they are what a re-run still has to do.
+    RemovalFailed {
+        plane: String,
+        operation: Teardown,
+        members: Vec<PerMember<RemovedMember>>,
+    },
     /// A lock could not be taken in time. The one failure that means "try
     /// again" rather than "this did not work".
     LockTimeout { object: PathBuf },
@@ -216,6 +243,21 @@ pub enum Occupant {
     /// A claimed directory with no plane file — the window between `mkdir` and
     /// the first write, or what a crash in it left.
     ClaimWithoutPlaneFile,
+}
+
+/// Which of the two teardown verbs is speaking.
+///
+/// They carry identical rules — removing a member destroys exactly as much work
+/// as destroying a one-member plane (ADR-0006) — so they share every failure and
+/// differ only in the sentence they print.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum Teardown {
+    /// `bp destroy`: the whole plane.
+    Destroy,
+    /// `bp rm`: the members named.
+    Remove,
 }
 
 /// Which way a branch intent was not met.
@@ -261,6 +303,10 @@ impl EngineError {
             EngineError::ParseError { .. } => "parse_error",
             EngineError::GitFailed { .. } => "git_failed",
             EngineError::CreateAborted { .. } => "create_aborted",
+            EngineError::Refused { .. } => "refused",
+            EngineError::PlaneIncomplete { .. } => "plane_incomplete",
+            EngineError::ProjectNotInPlane { .. } => "project_not_in_plane",
+            EngineError::RemovalFailed { .. } => "removal_failed",
             EngineError::LockTimeout { .. } => "lock_timeout",
             EngineError::Io { .. } => "io",
         }
@@ -293,7 +339,8 @@ impl EngineError {
             | EngineError::MemberPathAmbiguous { .. }
             | EngineError::MemberNotARepository { .. }
             | EngineError::BranchIntentUnmet { .. }
-            | EngineError::BaseBranchUnresolved { .. } => ExitCode::Usage,
+            | EngineError::BaseBranchUnresolved { .. }
+            | EngineError::ProjectNotInPlane { .. } => ExitCode::Usage,
 
             EngineError::LockTimeout { .. } => ExitCode::Busy,
 
@@ -304,6 +351,9 @@ impl EngineError {
             | EngineError::CreateAborted { .. }
             | EngineError::ProjectAddAborted { .. }
             | EngineError::FetchFailed { .. }
+            | EngineError::Refused { .. }
+            | EngineError::PlaneIncomplete { .. }
+            | EngineError::RemovalFailed { .. }
             | EngineError::Io { .. } => ExitCode::Failure,
         }
     }
@@ -351,6 +401,15 @@ impl EngineError {
                 .collect(),
             EngineError::ProjectAddAborted { problem, .. } => vec![problem.clone()],
             EngineError::FetchFailed { problems, .. } => problems.clone(),
+            // Each reason is its own problem, so a member with three of them
+            // prints three lines and the remedy can name all three.
+            EngineError::Refused { refusals, .. } => refusals
+                .iter()
+                .map(|refusal| Problem::about(refusal.member.to_string(), &refusal.detail))
+                .collect(),
+            EngineError::RemovalFailed { members, .. } => {
+                members.iter().filter_map(problem_from_removal).collect()
+            }
             _ => Vec::new(),
         }
     }
@@ -483,9 +542,34 @@ impl EngineError {
                 "Nothing was left behind. Fix what the rows report, then run bp create again."
                     .to_owned()
             }),
+            EngineError::Refused { refusals, .. } => Some(format!(
+                "Inspect the members listed. Re-run with {} to accept losing that work.",
+                waive_flags(&refusals.iter().collect::<Vec<&Refusal>>())
+            )),
+            EngineError::PlaneIncomplete { id } => Some(format!(
+                "Nothing in it is yours; run bp destroy -p {id} to clear it."
+            )),
+            EngineError::ProjectNotInPlane { .. } => {
+                Some("Run bp show to see the members of this plane.".to_owned())
+            }
+            EngineError::RemovalFailed { operation, .. } => Some(format!(
+                "Fix what the rows report, then run bp {} again; it converges, \
+                 so re-running only finishes what is left.",
+                operation.verb()
+            )),
             EngineError::InvalidRequest { .. }
             | EngineError::GitFailed { .. }
             | EngineError::Io { .. } => None,
+        }
+    }
+}
+
+impl Teardown {
+    /// The verb a user types, for a remedy that can be pasted.
+    pub fn verb(self) -> &'static str {
+        match self {
+            Teardown::Destroy => "destroy",
+            Teardown::Remove => "rm",
         }
     }
 }
@@ -616,6 +700,36 @@ impl fmt::Display for EngineError {
                     write!(f, "create did not finish; {id} was removed")
                 }
             }
+            EngineError::Refused {
+                plane,
+                operation,
+                blocking,
+                considered,
+                ..
+            } => match operation {
+                Teardown::Destroy => write!(
+                    f,
+                    "refusing to destroy {plane}: {blocking} of {considered} members have work \
+                     that would be lost"
+                ),
+                Teardown::Remove => write!(
+                    f,
+                    "refusing to remove {blocking} of {considered} members from {plane}: they \
+                     have work that would be lost"
+                ),
+            },
+            EngineError::PlaneIncomplete { id } => {
+                write!(f, "{id} was never finished being created")
+            }
+            EngineError::ProjectNotInPlane { member, plane } => {
+                write!(f, "{member} is not a member of {plane}")
+            }
+            EngineError::RemovalFailed { plane, members, .. } => write!(
+                f,
+                "{} of {} worktrees could not be removed from {plane}",
+                members.iter().filter(|row| row.is_failure()).count(),
+                members.len(),
+            ),
             EngineError::LockTimeout { object } => {
                 write!(f, "timed out waiting for the lock on {}", object.display())
             }
@@ -647,6 +761,17 @@ fn problem_from_row(row: &PerMember<CreatedMember>) -> Option<Problem> {
     };
 
     Some(Problem::about(row.member.to_string(), message))
+}
+
+/// A member whose worktree would not go.
+fn problem_from_removal(row: &PerMember<RemovedMember>) -> Option<Problem> {
+    match &row.outcome {
+        Outcome::Failed(error) => Some(Problem::about(
+            row.member.to_string(),
+            format!("could not be removed: {error}"),
+        )),
+        _ => None,
+    }
 }
 
 /// A member whose worktree the unwind could not take back. Only the failures:
@@ -818,7 +943,39 @@ mod tests {
                 path: PathBuf::from("/planes/bp-a3f9c2e1/plane.toml"),
                 message: "permission denied".to_owned(),
             },
+            EngineError::Refused {
+                plane: "bp-a3f9c2e1".to_owned(),
+                operation: Teardown::Destroy,
+                blocking: 1,
+                considered: 2,
+                refusals: vec![a_refusal()],
+            },
+            EngineError::PlaneIncomplete {
+                id: "bp-a3f9c2e1".to_owned(),
+            },
+            EngineError::PlaneNotFound {
+                sought: PlaneRef::Id {
+                    id: "auth-work".to_owned(),
+                },
+            },
+            EngineError::ProjectNotInPlane {
+                member: "@web".to_owned(),
+                plane: "bp-a3f9c2e1".to_owned(),
+            },
+            EngineError::RemovalFailed {
+                plane: "bp-a3f9c2e1".to_owned(),
+                operation: Teardown::Remove,
+                members: Vec::new(),
+            },
         ]
+    }
+
+    fn a_refusal() -> Refusal {
+        Refusal::new(
+            crate::member::MemberRef::Repo(PathBuf::from("/repos/api")),
+            crate::refusal::Reason::Uncommitted,
+            "feat-login has uncommitted changes",
+        )
     }
 
     #[test]
@@ -861,6 +1018,77 @@ mod tests {
             serde_json::from_str::<EngineError>(&json).unwrap(),
             error,
             "round-tripped from {json}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_prints_one_problem_per_reason_and_a_remedy_that_can_be_pasted() {
+        let error = EngineError::Refused {
+            plane: "bp-a3f9c2e1".to_owned(),
+            operation: Teardown::Destroy,
+            blocking: 2,
+            considered: 3,
+            refusals: vec![
+                a_refusal(),
+                Refusal::new(
+                    crate::member::MemberRef::Repo(PathBuf::from("/repos/web")),
+                    crate::refusal::Reason::Untracked,
+                    "feat-login has untracked files",
+                ),
+            ],
+        };
+
+        let envelope = error.envelope();
+
+        assert_eq!(
+            envelope.message,
+            "refusing to destroy bp-a3f9c2e1: 2 of 3 members have work that would be lost"
+        );
+        assert_eq!(envelope.problems.len(), 2);
+        assert_eq!(envelope.problems[0].subject.as_deref(), Some("/repos/api"));
+        assert_eq!(
+            envelope.remedy.as_deref(),
+            Some(
+                "Inspect the members listed. Re-run with --waive uncommitted --waive untracked \
+                 to accept losing that work."
+            )
+        );
+    }
+
+    #[test]
+    fn the_two_teardown_verbs_refuse_in_their_own_words() {
+        let removing = EngineError::Refused {
+            plane: "bp-a3f9c2e1".to_owned(),
+            operation: Teardown::Remove,
+            blocking: 2,
+            considered: 2,
+            refusals: vec![a_refusal()],
+        };
+
+        assert_eq!(
+            removing.to_string(),
+            "refusing to remove 2 of 2 members from bp-a3f9c2e1: they have work that would be lost"
+        );
+    }
+
+    #[test]
+    fn a_plane_that_is_not_there_says_which_way_it_was_looked_for() {
+        let by_id = EngineError::PlaneNotFound {
+            sought: PlaneRef::Id {
+                id: "auth-work".to_owned(),
+            },
+        };
+        let from_here = EngineError::PlaneNotFound {
+            sought: PlaneRef::ContainingPath {
+                path: PathBuf::from("/Users/alfonz/src"),
+            },
+        };
+
+        assert_eq!(by_id.to_string(), "there is no plane called auth-work");
+        assert_eq!(from_here.to_string(), "no plane contains /Users/alfonz/src");
+        assert!(
+            by_id.envelope().remedy != from_here.envelope().remedy,
+            "one way out is a listing, the other is naming a plane"
         );
     }
 

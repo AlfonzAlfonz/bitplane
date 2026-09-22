@@ -17,7 +17,8 @@
 
 use crate::error::EngineError;
 use crate::wire::{
-    PlaneCreateRequest, PlaneCreated, PlaneList, PlaneListRequest, PlaneShowRequest, PlaneStatus,
+    PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest, PlaneDestroyed, PlaneList,
+    PlaneListRequest, PlaneRemoveRequest, PlaneRemoved, PlaneShowRequest, PlaneStatus,
     PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded, ProjectFetchRequest,
     ProjectFetched, ProjectListing,
 };
@@ -75,4 +76,19 @@ pub trait Engine: Reader {
     /// A fan-out: a forge that will not answer is one row, and every other
     /// project still gets its turn.
     fn project_fetch(&self, request: ProjectFetchRequest) -> Result<ProjectFetched, EngineError>;
+
+    /// Takes a whole plane apart, and refuses over work that would be lost.
+    ///
+    /// **Converges.** You cannot un-remove a worktree, so there is no rollback:
+    /// an interrupted or half-failed run is finished by running it again, with
+    /// the refusals re-checked against what survived and the members already
+    /// gone reported `AlreadyDone` (ADR-0004).
+    fn plane_destroy(&self, request: PlaneDestroyRequest) -> Result<PlaneDestroyed, EngineError>;
+
+    /// Takes the members named out of a plane, leaving the rest of it alone.
+    ///
+    /// Carries **rules identical** to [`Engine::plane_destroy`]: removing a
+    /// member destroys exactly as much work as destroying a one-member plane,
+    /// so a lighter rule here would be a hole in that one (ADR-0006).
+    fn plane_remove(&self, request: PlaneRemoveRequest) -> Result<PlaneRemoved, EngineError>;
 }

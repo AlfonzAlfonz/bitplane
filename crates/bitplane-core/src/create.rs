@@ -33,7 +33,7 @@ use crate::outcome::{Outcome, PerMember, SkipReason};
 use crate::plane_dir::ClaimedPlane;
 use crate::plane_file::{Member, PlaneFile};
 use crate::plane_id::PlaneId;
-use crate::repo::Git;
+use crate::repo::{Git, Insistence, canonical_path as canonical};
 use crate::wire::{BranchIntent, CreatedMember, PlaneCreateRequest, PlaneCreated};
 
 /// How many worktrees are built at once.
@@ -430,7 +430,7 @@ fn take_back(
 
         // Forced unconditionally, and only here: by construction nothing in the
         // abort window is the user's yet.
-        if let Err(refused) = git.remove_worktree(&member.source, &entry.path, true) {
+        if let Err(refused) = git.remove_worktree(&member.source, &entry.path, Insistence::Forced) {
             // An entry whose directory something already deleted is prune's
             // business and nothing else's — and prune skips a locked worktree,
             // so the entry has to be confirmed gone rather than assumed.
@@ -457,11 +457,6 @@ fn take_back(
 
 fn still_registered(at: &Path, repo: &Path, git: &Git) -> Result<bool, EngineError> {
     Ok(git.worktrees(repo)?.iter().any(|entry| entry.path == at))
-}
-
-/// A path as the filesystem sees it, or as given where it no longer exists.
-fn canonical(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn membership(id: PlaneId, planned: &[PlannedMember]) -> PlaneFile {

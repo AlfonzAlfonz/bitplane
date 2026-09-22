@@ -18,8 +18,9 @@
 use bitplane_core::member::PROJECT_SIGIL;
 use bitplane_core::{
     CreatedMember, ErrorEnvelope, Fetched, Finding, Head, MemberView, MemberWork, Outcome,
-    PerMember, PerProject, PlaneCreated, PlaneHealth, PlaneList, PlaneStatus, PlaneView, Problem,
-    ProjectAdded, ProjectFetched, ProjectListing, ProjectSummary, Response,
+    PerMember, PerProject, PlaneCreated, PlaneDestroyed, PlaneHealth, PlaneList, PlaneRemoved,
+    PlaneStatus, PlaneView, Problem, ProjectAdded, ProjectFetched, ProjectListing, ProjectSummary,
+    RemovedMember, Response,
 };
 
 /// Whether output is for a person or a program.
@@ -46,6 +47,8 @@ pub fn response(response: &Response, rendering: Rendering) -> String {
             Response::ProjectAdd(added) => project(added),
             Response::ProjectList(listing) => projects(listing),
             Response::ProjectFetch(fetched) => fetches(fetched),
+            Response::PlaneDestroy(destroyed) => destroyed_plane(destroyed),
+            Response::PlaneRemove(removed) => removed_members(removed),
         },
     }
 }
@@ -79,6 +82,92 @@ fn plane(created: &PlaneCreated) -> String {
     }
 
     text
+}
+
+/// A plane, its rows, and then whether it is actually gone.
+fn destroyed_plane(destroyed: &PlaneDestroyed) -> String {
+    let mut text = teardown(
+        &destroyed.id,
+        &destroyed.directory.display().to_string(),
+        &destroyed.members,
+    );
+
+    // Said only when it is true. An interrupted run has left a plane behind,
+    // and `destroy` converges — so the rows are what a re-run still has to do.
+    if !destroyed.interrupted {
+        text.push_str(&format!(
+            "\ndestroyed {}{}\n",
+            destroyed.id,
+            if destroyed.incomplete {
+                " (create had never completed)"
+            } else {
+                ""
+            }
+        ));
+    }
+
+    text
+}
+
+/// The members that left, and nothing about the plane, which is still there.
+fn removed_members(removed: &PlaneRemoved) -> String {
+    teardown(
+        &removed.id,
+        &removed.directory.display().to_string(),
+        &removed.members,
+    )
+}
+
+fn teardown(id: &str, directory: &str, members: &[PerMember<RemovedMember>]) -> String {
+    let rows: Vec<Vec<String>> = members.iter().map(removed_row).collect();
+
+    format!("{id}  {directory}\n\n{}", columns(&rows, INDENT))
+}
+
+/// `<member>  <branch>  <outcome>  <path>`, the same grammar every fan-out uses.
+fn removed_row(row: &PerMember<RemovedMember>) -> Vec<String> {
+    let (branch, outcome, path) = match &row.outcome {
+        Outcome::Ok(member) => (
+            member.branch.clone().unwrap_or_else(dash),
+            "removed".to_owned(),
+            format!("{}{}", member.path, removal_notes(member)),
+        ),
+        Outcome::AlreadyDone => (dash(), "already gone".to_owned(), dash()),
+        Outcome::Skipped(reason) => (dash(), format!("skipped: {}", reason.reason()), dash()),
+        Outcome::Failed(error) => (dash(), format!("failed: {error}"), dash()),
+    };
+
+    vec![row.member.to_string(), branch, outcome, path]
+}
+
+/// What was true of this removal beyond the fact of it — whether the branch
+/// went too, and what the user waived to get here.
+///
+/// The waivers are echoed rather than assumed, so a forced destruction is
+/// visible in a transcript.
+fn removal_notes(member: &RemovedMember) -> String {
+    let mut notes: Vec<String> = Vec::new();
+
+    if member.branch_deleted {
+        notes.push("branch deleted".to_owned());
+    }
+    if !member.waived.is_empty() {
+        notes.push(format!(
+            "waived: {}",
+            member
+                .waived
+                .iter()
+                .map(|reason| reason.tag())
+                .collect::<Vec<&str>>()
+                .join(", ")
+        ));
+    }
+
+    if notes.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", notes.join(", "))
+    }
 }
 
 /// `bp list`: one block per plane, separated by a blank line.
@@ -505,7 +594,7 @@ mod tests {
     use super::*;
     use bitplane_core::{
         EngineError, HealthCheck, MemberRef, MemberStatus, PlaneId, ProjectName, ProjectSource,
-        SkipReason, WorktreePath,
+        Reason, SkipReason, WorktreePath,
     };
     use std::path::PathBuf;
 
@@ -927,6 +1016,118 @@ mod tests {
                     },
                 ),
             ],
+        }
+    }
+
+    #[test]
+    fn a_destroyed_plane_prints_its_rows_and_then_says_it_is_gone() {
+        let rendered = response(&Response::PlaneDestroy(destroyed()), Rendering::Human);
+
+        assert_eq!(
+            rendered,
+            concat!(
+                "bp-7c1e0d44  /Users/alfonz/planes/bp-7c1e0d44\n",
+                "\n",
+                "  @api   feat-login  removed       acme/api\n",
+                "  @docs  -           already gone  -\n",
+                "\n",
+                "destroyed bp-7c1e0d44\n",
+            )
+        );
+    }
+
+    #[test]
+    fn a_waived_reason_is_echoed_beside_the_member_it_was_granted_for() {
+        let mut plane = destroyed();
+        plane.members[0] = PerMember::ok(
+            MemberRef::parse("@api").unwrap(),
+            RemovedMember {
+                waived: vec![Reason::Uncommitted, Reason::Untracked],
+                ..removed_member()
+            },
+        );
+
+        let rendered = response(&Response::PlaneDestroy(plane), Rendering::Human);
+
+        assert!(
+            rendered.contains("acme/api (waived: uncommitted, untracked)"),
+            "a forced destruction has to be visible in a transcript:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_plane_that_was_never_finished_being_created_says_why_it_asked_nothing() {
+        let mut plane = destroyed();
+        plane.incomplete = true;
+
+        let rendered = response(&Response::PlaneDestroy(plane), Rendering::Human);
+
+        assert!(
+            rendered.ends_with("destroyed bp-7c1e0d44 (create had never completed)\n"),
+            "got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn an_interrupted_destroy_does_not_claim_the_plane_is_gone() {
+        let mut plane = destroyed();
+        plane.interrupted = true;
+        plane.members[1] =
+            PerMember::skipped(MemberRef::parse("@docs").unwrap(), SkipReason::Interrupted);
+
+        let rendered = response(&Response::PlaneDestroy(plane), Rendering::Human);
+
+        assert!(!rendered.contains("destroyed"), "got:\n{rendered}");
+        assert!(
+            rendered.contains("skipped: interrupted"),
+            "got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn removing_members_says_nothing_about_the_plane_which_is_still_there() {
+        let rendered = response(
+            &Response::PlaneRemove(PlaneRemoved {
+                id: "bp-7c1e0d44".to_owned(),
+                directory: PathBuf::from("/Users/alfonz/planes/bp-7c1e0d44"),
+                members: vec![PerMember::ok(
+                    MemberRef::parse("@api").unwrap(),
+                    removed_member(),
+                )],
+                interrupted: false,
+            }),
+            Rendering::Human,
+        );
+
+        assert_eq!(
+            rendered,
+            concat!(
+                "bp-7c1e0d44  /Users/alfonz/planes/bp-7c1e0d44\n",
+                "\n",
+                "  @api  feat-login  removed  acme/api\n",
+            )
+        );
+    }
+
+    fn destroyed() -> PlaneDestroyed {
+        PlaneDestroyed {
+            id: "bp-7c1e0d44".to_owned(),
+            directory: PathBuf::from("/Users/alfonz/planes/bp-7c1e0d44"),
+            members: vec![
+                PerMember::ok(MemberRef::parse("@api").unwrap(), removed_member()),
+                PerMember::new(MemberRef::parse("@docs").unwrap(), Outcome::AlreadyDone),
+            ],
+            incomplete: false,
+            interrupted: false,
+        }
+    }
+
+    fn removed_member() -> RemovedMember {
+        RemovedMember {
+            branch: Some("feat-login".to_owned()),
+            path: WorktreePath::parse("acme/api").unwrap(),
+            branch_deleted: false,
+            waived: Vec::new(),
         }
     }
 

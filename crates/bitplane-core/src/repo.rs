@@ -34,6 +34,47 @@ pub struct WorktreeEntry {
     /// survives, and until someone prunes it the branch still looks checked out
     /// — which would make every retry after a hard kill refuse.
     pub prunable: bool,
+    /// Git's own lock, with the reason where one was given. Someone said "do
+    /// not remove this", so removing it is a refusal bitplane reports in its
+    /// own words and only a waiver gets past.
+    pub locked: Option<WorktreeLock>,
+}
+
+/// `git worktree lock`, and what it was locked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeLock {
+    /// The reason `git worktree lock --reason` was given, where it was given
+    /// one. Empty is the honest answer: git stores no reason by default.
+    pub reason: Option<String>,
+}
+
+/// What git's own status says about a worktree's contents.
+///
+/// Two commands rather than one parse: `--untracked-files=no` answers the first
+/// and `ls-files --others` the second, so neither answer depends on splitting
+/// porcelain records whose rename form carries a second path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkingTree {
+    /// Tracked files differ from `HEAD` or from the index.
+    pub uncommitted: bool,
+    /// Files git does not track and no ignore rule covers.
+    pub untracked: bool,
+}
+
+/// How hard `git worktree remove` is allowed to push.
+///
+/// Never a blanket flag. Each step up is unlocked by a waiver the user granted
+/// for something this very member has, which is what keeps ADR-0004's
+/// abort-path force from leaking onto `destroy`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Insistence {
+    /// Git's own refusal stands.
+    Polite,
+    /// `--force`: work in the worktree was waived.
+    Forced,
+    /// `--force --force`: git's lock on the worktree was waived as well. Git
+    /// wants the flag twice, and nothing less removes a locked worktree.
+    ForcedThroughLock,
 }
 
 impl Git {
@@ -367,16 +408,107 @@ impl Git {
         .map(drop)
     }
 
-    /// `git worktree remove`.
+    /// The worktree of `repo` at `at`, where git records one.
     ///
-    /// `force` is passed by the **abort path only**, where it is safe because
-    /// by construction nothing in the abort window is the user's yet. It must
-    /// not be "consistency-fixed" onto `destroy`, where the same flag would
-    /// step straight over the uncommitted-work veto (ADR-0004).
-    pub fn remove_worktree(&self, repo: &Path, at: &Path, force: bool) -> Result<(), EngineError> {
+    /// Matched on git's own recorded path: git canonicalises at `worktree add`
+    /// time, so `/tmp/…` comes back as `/private/tmp/…` on macOS and the two
+    /// never compare equal as written.
+    pub fn worktree_at(
+        &self,
+        repo: &Path,
+        at: &Path,
+    ) -> Result<Option<WorktreeEntry>, EngineError> {
+        let wanted = canonical_path(at);
+
+        Ok(self
+            .worktrees(repo)?
+            .into_iter()
+            .find(|entry| canonical_path(&entry.path) == wanted))
+    }
+
+    /// What git's own status says about the contents of the worktree at `at`.
+    ///
+    /// A pure read: it shells out, answers, and stores nothing (ADR-0006). The
+    /// index refresh `status` performs is git's own business and is safe,
+    /// because `index.lock` is per-worktree.
+    pub fn working_tree(&self, at: &Path) -> Result<WorkingTree, EngineError> {
+        let tracked = self.run(
+            at,
+            &["status", "--porcelain=v1", "-z", "--untracked-files=no"],
+        )?;
+        let others = self.run(at, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+
+        Ok(WorkingTree {
+            uncommitted: !tracked.is_empty(),
+            untracked: !others.is_empty(),
+        })
+    }
+
+    /// What `HEAD` resolves to in the worktree at `at`.
+    ///
+    /// Used as the tip for the containment check, so a detached worktree is
+    /// asked the same question as one on a branch.
+    pub fn head_commit(&self, at: &Path) -> Result<Option<String>, EngineError> {
+        let resolved = self.captured(at, &["rev-parse", "--verify", "--quiet", "HEAD"])?;
+
+        Ok(resolved
+            .map(|tip| tip.trim().to_owned())
+            .filter(|tip| !tip.is_empty()))
+    }
+
+    /// Whether `tip` is contained in **any** `refs/remotes/origin/*`.
+    ///
+    /// This is the `unpushed` predicate, and it is deliberately **not**
+    /// `git branch -d`'s check. A plane branch is cut from `origin/main` and
+    /// keeps it as its upstream, so `-d` compares against the wrong ref and
+    /// refuses a branch whose commits are already safe on the forge at
+    /// `origin/feat` (ADR-0006). Containment answers the question that matters:
+    /// *is this work recoverable?*
+    ///
+    /// No fetch is performed, here or anywhere on the `destroy` path. A
+    /// remote-tracking ref left behind by a push from another machine can only
+    /// make the answer more conservative — a false refusal the user waives —
+    /// never more permissive.
+    pub fn contained_in_origin(&self, repo: &Path, tip: &str) -> Result<bool, EngineError> {
+        let found = self.captured(
+            repo,
+            &[
+                "for-each-ref",
+                "--contains",
+                tip,
+                "--count=1",
+                "--format=%(refname)",
+                ORIGIN_REFS,
+            ],
+        )?;
+
+        // A tip git cannot resolve answers "not contained": the conservative
+        // direction, and the only honest one when the question cannot be put.
+        Ok(found.is_some_and(|refs| !refs.trim().is_empty()))
+    }
+
+    /// `git worktree remove`, pushing exactly as hard as [`Insistence`] says.
+    ///
+    /// The abort path passes [`Insistence::Forced`] because by construction
+    /// nothing in the abort window is the user's yet. On `destroy` and `remove`
+    /// the same flag is reached for **only** where the user waived the very
+    /// thing git is refusing over, which is what stops ADR-0004's scoped force
+    /// from being "consistency-fixed" into a hole in the uncommitted-work veto.
+    pub fn remove_worktree(
+        &self,
+        repo: &Path,
+        at: &Path,
+        insistence: Insistence,
+    ) -> Result<(), EngineError> {
         let mut args = vec![OsStr::new("worktree"), OsStr::new("remove")];
-        if force {
-            args.push(OsStr::new("--force"));
+        match insistence {
+            Insistence::Polite => {}
+            Insistence::Forced => args.push(OsStr::new("--force")),
+            // Twice, which is what git wants for a worktree it has locked.
+            Insistence::ForcedThroughLock => {
+                args.push(OsStr::new("--force"));
+                args.push(OsStr::new("--force"));
+            }
         }
         args.push(at.as_os_str());
 
@@ -457,6 +589,19 @@ impl Git {
         })
     }
 
+    /// Runs git for its stdout, where a non-zero exit is the answer "no" rather
+    /// than a failure — a probe that also has something to say when it works.
+    fn captured(&self, repo: &Path, args: &[&str]) -> Result<Option<String>, EngineError> {
+        let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+        let output = self.spawn(repo, &args)?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned()))
+    }
+
     /// Runs git for its exit status alone — the shape of every `--quiet`
     /// existence probe, where a non-zero exit is the answer rather than a
     /// failure.
@@ -486,13 +631,34 @@ impl Git {
 /// Where git records the forge's default branch.
 const ORIGIN_HEAD: &str = "refs/remotes/origin/HEAD";
 
+/// The namespace the forge's branches live in, and the whole of what `unpushed`
+/// asks about.
+const ORIGIN_REFS: &str = "refs/remotes/origin/";
+
 fn canonical(path: &str) -> PathBuf {
     canonical_path(Path::new(path))
 }
 
-/// A path as the filesystem sees it, or as given where it cannot be resolved.
-fn canonical_path(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+/// A path as the filesystem sees it, resolving as much of it as exists.
+///
+/// Plain `canonicalize` fails outright once the leaf is gone, and that is
+/// exactly the case comparisons here have to survive: git records a canonical
+/// path at `worktree add` time, so a worktree whose directory has since been
+/// deleted must still compare equal to git's record. On a host where `/tmp` or
+/// the planes directory is a symlink — macOS out of the box — falling back to
+/// the path as written makes the two differ, and a stale entry git is still
+/// holding a branch on reads as *already gone*.
+///
+/// So the deepest existing ancestor is canonicalised and the rest appended.
+pub fn canonical_path(path: &Path) -> PathBuf {
+    if let Ok(resolved) = path.canonicalize() {
+        return resolved;
+    }
+
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) if parent != path => canonical_path(parent).join(name),
+        _ => path.to_path_buf(),
+    }
 }
 
 /// Reads `git worktree list --porcelain -z`: NUL-terminated attributes, with an
@@ -502,6 +668,7 @@ fn parse_worktree_listing(listing: &str) -> Vec<WorktreeEntry> {
     let mut path: Option<PathBuf> = None;
     let mut branch: Option<String> = None;
     let mut prunable = false;
+    let mut locked: Option<WorktreeLock> = None;
 
     for attribute in listing.split('\0') {
         if attribute.is_empty() {
@@ -510,10 +677,12 @@ fn parse_worktree_listing(listing: &str) -> Vec<WorktreeEntry> {
                     path,
                     branch: branch.take(),
                     prunable,
+                    locked: locked.take(),
                 });
             }
             branch = None;
             prunable = false;
+            locked = None;
             continue;
         }
 
@@ -523,6 +692,8 @@ fn parse_worktree_listing(listing: &str) -> Vec<WorktreeEntry> {
             branch = Some(value.to_owned());
         } else if attribute == "prunable" || attribute.starts_with("prunable ") {
             prunable = true;
+        } else if let Some(reason) = flag_value(attribute, "locked") {
+            locked = Some(WorktreeLock { reason });
         }
     }
 
@@ -560,6 +731,18 @@ fn count_changes(listing: &str) -> (usize, usize) {
     }
 
     (modified, untracked)
+}
+
+/// A porcelain flag that may carry a reason: `locked` alone, or `locked <why>`.
+fn flag_value(attribute: &str, flag: &str) -> Option<Option<String>> {
+    if attribute == flag {
+        return Some(None);
+    }
+
+    attribute
+        .strip_prefix(flag)
+        .and_then(|rest| rest.strip_prefix(' '))
+        .map(|reason| Some(reason.trim().to_owned()).filter(|reason| !reason.is_empty()))
 }
 
 fn describe(args: &[&OsStr], output: &Output) -> String {
@@ -609,6 +792,26 @@ fn rendered(args: &[&OsStr]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    use crate::testing::scratch_dir;
+
+    #[test]
+    fn a_path_whose_leaf_is_gone_still_resolves_through_a_symlinked_ancestor() {
+        // The case that makes a stale worktree entry read as `already gone`:
+        // git recorded the resolved path, the directory has since been deleted,
+        // and `canonicalize` on the whole thing fails.
+        let dir = scratch_dir("canonical-missing");
+        let real = dir.join("real");
+        let link = dir.join("link");
+        fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        assert_eq!(
+            canonical_path(&link.join("repos").join("alpha")),
+            canonical_path(&real).join("repos").join("alpha"),
+        );
+    }
 
     #[test]
     fn a_porcelain_listing_reads_back_as_its_worktrees() {
@@ -624,11 +827,13 @@ mod tests {
                     path: PathBuf::from("/repos/api"),
                     branch: Some("main".to_owned()),
                     prunable: false,
+                    locked: None,
                 },
                 WorktreeEntry {
                     path: PathBuf::from("/planes/bp-a3f9c2e1/repos/api"),
                     branch: Some("feat-login".to_owned()),
                     prunable: false,
+                    locked: None,
                 },
             ]
         );
@@ -659,6 +864,7 @@ mod tests {
                 path: PathBuf::from("/repos/od\nd"),
                 branch: Some("main".to_owned()),
                 prunable: false,
+                locked: None,
             }]
         );
     }
@@ -708,6 +914,42 @@ mod tests {
         let listing = " M src/od\nd.rs\0";
 
         assert_eq!(count_changes(listing), (1, 0));
+    }
+
+    #[test]
+    fn a_locked_entry_is_read_with_the_reason_git_was_given() {
+        let listing = concat!(
+            "worktree /planes/x/api\0HEAD abc\0branch refs/heads/feat\0",
+            "locked migration running\0\0",
+            "worktree /planes/x/web\0HEAD def\0branch refs/heads/feat\0locked\0\0",
+        );
+
+        let entries = parse_worktree_listing(listing);
+
+        assert_eq!(
+            entries[0].locked,
+            Some(WorktreeLock {
+                reason: Some("migration running".to_owned()),
+            })
+        );
+        assert_eq!(
+            entries[1].locked,
+            Some(WorktreeLock { reason: None }),
+            "git stores no reason by default, and that is not `unlocked`"
+        );
+    }
+
+    #[test]
+    fn a_lock_never_leaks_into_the_next_record() {
+        let listing = concat!(
+            "worktree /planes/x/api\0HEAD abc\0locked migration\0\0",
+            "worktree /planes/x/web\0HEAD def\0\0",
+        );
+
+        let entries = parse_worktree_listing(listing);
+
+        assert!(entries[0].locked.is_some());
+        assert_eq!(entries[1].locked, None);
     }
 
     #[test]

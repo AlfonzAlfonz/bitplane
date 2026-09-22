@@ -325,6 +325,7 @@ Exit code `1`. The operation ran and did not succeed.
 | `parse_error` | `~/.config/bitplane/config.toml: unknown key "plane_dir"` | `Legal keys are version, planes_dir and projects_dir.` |
 | `git_failed` | `git worktree add exited 128: could not create leading directories of '~/planes/bp-a3f9c2e1/acme/api'` | none |
 | `fetch_failed` | `1 of 2 fetchable projects could not be fetched` | none |
+| `removal_failed` | `1 of 3 worktrees could not be removed from bp-a3f9c2e1` | `Fix what the rows report, then run bp destroy again; it converges, so re-running only finishes what is left.` |
 | `repair_failed` | `@style was renamed; 1 of 2 planes could not be repaired` | `Fix what the rows report, then run the command again; repairing is idempotent, so re-running is safe.` |
 | `io` | `~/planes/bp-a3f9c2e1/plane.toml: permission denied` | none |
 
@@ -337,6 +338,12 @@ message names the subcommand, git's exit code and git's own diagnostic — the
 `fatal:` line, not the progress line above it. Where bitplane can say something
 better in its own words it does, and
 [`branch_occupied`](#branch_occupied) is that case; `git_failed` is what is left.
+
+`removal_failed` is raised by [`bp destroy`](./plane/destroy.md) and
+[`bp rm`](./plane/rm.md) alike, and carries its per-member rows **inside** the
+error. Both converge, so those rows are what a re-run still has to do rather
+than something to unwind — and the members already gone come back
+`already gone` next time.
 
 `repair_failed` is raised by [`bp rename`](./plane/rename.md),
 [`bp repair`](./plane/repair.md) and [`bp project rename`](./project/rename.md)

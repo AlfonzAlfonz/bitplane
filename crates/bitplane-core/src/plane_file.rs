@@ -135,6 +135,32 @@ impl PlaneFile {
     }
 }
 
+/// `text`, rewritten without the members at `removed`.
+///
+/// A `toml_edit` read-modify-write rather than a re-render, because
+/// hand-editing is tolerated: a user's `# do not reap, long-running migration`
+/// must survive `bp rm`.
+///
+/// Keyed by the worktree path, which is what `[members]` is keyed by — so a
+/// member is dropped by the same string the file names it with, and nothing has
+/// to re-derive anything.
+pub fn without(path: &Path, text: &str, removed: &[WorktreePath]) -> Result<String, EngineError> {
+    let mut document: DocumentMut = text
+        .parse()
+        .map_err(|err: toml_edit::TomlError| parse_error(path, err.message()))?;
+
+    let table = document
+        .get_mut("members")
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| parse_error(path, "members must be a table"))?;
+
+    for key in removed {
+        table.remove(&key.to_string());
+    }
+
+    Ok(document.to_string())
+}
+
 impl fmt::Display for PlaneFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.render())
@@ -427,6 +453,69 @@ mod tests {
         let file = PlaneFile::parse(Path::new(PATH), text).unwrap();
 
         assert_eq!(file.members.len(), 1);
+    }
+
+    #[test]
+    fn a_member_dropped_from_the_file_takes_only_its_own_line() {
+        let text = plane_file().render();
+
+        let rewritten = without(
+            Path::new(PATH),
+            &text,
+            &[WorktreePath::parse("acme/codestyle").unwrap()],
+        )
+        .unwrap();
+
+        let file = PlaneFile::parse(Path::new(PATH), &rewritten).unwrap();
+        assert_eq!(file.members.len(), 1);
+        assert_eq!(file.members[0].path.to_string(), "projects/bitplane");
+        assert_eq!(file.id, plane_file().id, "the other two keys are untouched");
+    }
+
+    #[test]
+    fn what_a_user_wrote_around_the_membership_survives_the_rewrite() {
+        // Hand-editing is tolerated, which is the whole reason this is a
+        // `toml_edit` read-modify-write and not a re-render.
+        let text = concat!(
+            "# do not reap, long-running migration\n",
+            "version = 1\nid = \"bp-a3f9c2e1\"\n\n[members]\n",
+            "\"acme/codestyle\" = \"@codestyle\"\n",
+            "\"acme/api\" = \"@api\"  # the one that matters\n",
+        );
+
+        let rewritten = without(
+            Path::new(PATH),
+            text,
+            &[WorktreePath::parse("acme/codestyle").unwrap()],
+        )
+        .unwrap();
+
+        assert!(
+            rewritten.starts_with("# do not reap, long-running migration"),
+            "got {rewritten}"
+        );
+        assert!(
+            rewritten.contains("# the one that matters"),
+            "got {rewritten}"
+        );
+        assert!(!rewritten.contains("codestyle"), "got {rewritten}");
+    }
+
+    #[test]
+    fn dropping_a_member_that_is_not_there_leaves_the_file_as_it_was() {
+        let text = plane_file().render();
+
+        let rewritten = without(
+            Path::new(PATH),
+            &text,
+            &[WorktreePath::parse("acme/nowhere").unwrap()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            PlaneFile::parse(Path::new(PATH), &rewritten).unwrap(),
+            plane_file()
+        );
     }
 
     fn plane_file() -> PlaneFile {
