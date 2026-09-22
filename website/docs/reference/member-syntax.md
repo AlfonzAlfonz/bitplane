@@ -66,10 +66,8 @@ A member with a branch suffix overrides `-b` for that member alone:
 
 ```
 bp create @api @web:hotfix -b feat-login
-# @api  -> feat-login
-
-# @web  -> hotfix
-
+# @api -> feat-login
+# @web -> hotfix
 ```
 
 **`bp add` requires a branch for every member**, either as a suffix or via `-b`.
