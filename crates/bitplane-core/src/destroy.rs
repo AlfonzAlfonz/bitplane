@@ -26,6 +26,15 @@
 //! scoped that to `create`'s abort window, where by construction nothing is the
 //! user's yet; here each `--force` is unlocked by a waiver the user granted for
 //! something this very member has.
+//!
+//! **The branch goes with the worktree, for an owned project and nothing else.**
+//! For a bitplane-owned source repo `refs/heads/*` holds exactly the branches
+//! plane members were created on, so the branch is the plane's to delete — and
+//! it needs no extra waiver and no second gate, because the `unpushed` check
+//! above has already run and a branch that got this far is provably recoverable
+//! from the forge. For an **adopted** project or an **ad-hoc member** no ref is
+//! touched at all: bitplane cannot tell a branch it created from one the user
+//! has had for two years in a repo it merely pointed at (ADR-0006).
 
 use std::path::{Path, PathBuf};
 
@@ -34,13 +43,15 @@ use crate::error::{EngineError, Teardown};
 use crate::interrupt::Interrupt;
 use crate::member::{MemberRef, WorktreePath};
 use crate::outcome::{Outcome, PerMember, SkipReason};
+use crate::plan;
 use crate::plane_dir::OpenPlane;
 use crate::plane_file::{self, Member, PlaneFile};
 use crate::read;
 use crate::refusal::{Reason, Refusal, Waivers};
 use crate::repo::{Git, Insistence, WorkingTree, WorktreeLock, canonical_path};
 use crate::wire::{
-    PlaneDestroyRequest, PlaneDestroyed, PlaneRemoveRequest, PlaneRemoved, RemovedMember,
+    BranchDisposition, PlaneDestroyRequest, PlaneDestroyed, PlaneRemoveRequest, PlaneRemoved,
+    RemovedMember,
 };
 
 /// Everything the teardown verbs need that is not in the request.
@@ -166,6 +177,9 @@ struct Checked {
     at: PathBuf,
     /// The repo it came from, where that is still there.
     source: Option<PathBuf>,
+    /// Whether bitplane owns that repo, and so whether the branch the worktree
+    /// is on is the plane's to delete.
+    owned: bool,
     /// What git said about it.
     seen: Inspection,
     /// The reasons raised for it and waived — what the response echoes, so a
@@ -279,10 +293,10 @@ fn look(
     context: &TeardownContext<'_>,
 ) -> Result<Checked, EngineError> {
     let at = member.path.under(plane.path());
-    let source = source_repo(member);
+    let source = plan::source_of(&member.source, context.directories);
 
-    let seen = match &source {
-        Some(source) => match inspect(source, &at, weigh, context) {
+    let seen = match source.found() {
+        Some(repo) => match inspect(repo, &at, weigh, source.owned, context) {
             Ok(seen) => seen,
             // Only git refusing. A git that could not be spawned at all keeps
             // its own typed failure, because that is not this member's fault
@@ -290,14 +304,16 @@ fn look(
             Err(EngineError::GitFailed { message }) => Inspection::Unreachable(message),
             Err(other) => return Err(other),
         },
-        None => {
-            Inspection::Unreachable(format!("the source repo is missing from {}", member.source))
-        }
+        None => Inspection::Unreachable(format!(
+            "the source repo is missing from {}",
+            source.at.display()
+        )),
     };
 
     Ok(Checked {
         member: member.clone(),
-        source,
+        owned: source.owned,
+        source: source.found().map(Path::to_path_buf),
         at,
         seen,
         waived: Vec::new(),
@@ -308,6 +324,7 @@ fn inspect(
     source: &Path,
     at: &Path,
     weigh: Weigh,
+    owned: bool,
     context: &TeardownContext<'_>,
 ) -> Result<Inspection, EngineError> {
     let entry = context.git.worktree_at(source, at)?;
@@ -316,29 +333,49 @@ fn inspect(
         return Ok(Inspection::Gone);
     }
 
-    // A directory git still records but that is no longer there holds nothing
-    // to lose, so the contents questions have nothing to ask.
-    let (state, contained) = if weigh == Weigh::TheContents && at.is_dir() {
-        let tip = context.git.head_commit(at)?;
+    let branch = entry.as_ref().and_then(|entry| entry.branch.clone());
 
-        (
-            Some(context.git.working_tree(at)?),
-            // Asked of the tip rather than of the branch name, so a detached
-            // worktree is asked the same question. No fetch, here or anywhere
-            // on this path: a stale tracking ref can only make the answer more
-            // conservative (ADR-0006).
-            Some(match tip {
-                Some(tip) => context.git.contained_in_origin(source, &tip)?,
-                None => false,
-            }),
-        )
-    } else {
-        (None, None)
+    if weigh != Weigh::TheContents {
+        return Ok(Inspection::Seen {
+            registered: entry.is_some(),
+            branch,
+            locked: entry.and_then(|entry| entry.locked),
+            state: None,
+            contained: None,
+        });
+    }
+
+    // A directory git still records but that is no longer there holds no
+    // *contents* to lose, so those questions have nothing to ask.
+    let state = match at.is_dir() {
+        true => Some(context.git.working_tree(at)?),
+        false => None,
+    };
+
+    // The tip whose commits this teardown would put out of reach. From the
+    // worktree while it is there — asked of the tip rather than of the branch
+    // name, so a detached worktree is asked the same question — and otherwise
+    // from the branch itself, but **only where that branch is about to be
+    // deleted with it**. A directory the user removed by hand loses nothing
+    // when bitplane owns no ref in the repo, and refusing there would be a
+    // refusal over work that is not going anywhere.
+    let contained = match (at.is_dir(), owned, &branch) {
+        // No fetch, here or anywhere on this path: a stale tracking ref can
+        // only make the answer more conservative (ADR-0006).
+        (true, _, _) => Some(match context.git.head_commit(at)? {
+            Some(tip) => context.git.contained_in_origin(source, &tip)?,
+            None => false,
+        }),
+        (false, true, Some(branch)) => match context.git.branch_tip(source, branch)? {
+            Some(tip) => Some(context.git.contained_in_origin(source, &tip)?),
+            None => None,
+        },
+        (false, _, _) => None,
     };
 
     Ok(Inspection::Seen {
         registered: entry.is_some(),
-        branch: entry.as_ref().and_then(|entry| entry.branch.clone()),
+        branch,
         locked: entry.and_then(|entry| entry.locked),
         state,
         contained,
@@ -432,13 +469,12 @@ fn take_out(
         } else if matches!(one.seen, Inspection::Gone) {
             Outcome::AlreadyDone
         } else {
-            match remove_worktree(one, latched, context) {
-                Ok(()) => Outcome::Ok(RemovedMember {
+            match remove_worktree(one, latched, context).and_then(|()| delete_branch(one, context))
+            {
+                Ok(disposition) => Outcome::Ok(RemovedMember {
                     branch: one.branch(),
                     path: one.member.path.clone(),
-                    // Never, today: every member is ad-hoc, and bitplane owns
-                    // no ref in a repo it merely pointed at (ADR-0006).
-                    branch_deleted: false,
+                    disposition,
                     waived: one.waived.clone(),
                 }),
                 Err(error) => Outcome::Failed(error),
@@ -528,6 +564,49 @@ fn remove_worktree(
     // Git removes the directory it recorded; anything the user left beside it
     // under the same path is still the plane's to clear.
     remove_directory(&one.at)
+}
+
+/// The branch the worktree was **actually on**, deleted where bitplane owns the
+/// repo it lives in.
+///
+/// Actually on, not created on: nothing records the branch a worktree was made
+/// with, so a user who switched branches gets the one they are standing on
+/// deleted and the one they left behind survives with no record of it — clean
+/// but not self-pruning, which is what `doctor` reports and never acts on.
+///
+/// Ordered after the removal because `git branch -D` refuses a branch a worktree
+/// still holds; and forced, because `-d`'s merge check compares against the
+/// branch's upstream, which for a plane branch is `origin/main` — the exact
+/// wrong question, and one the `unpushed` refusal has already asked properly.
+///
+/// A branch that is **already gone** is the state this was asked to reach, so
+/// it is reported as deleted rather than as a failure — which is what keeps a
+/// concurrent or half-finished run converging. Anything else git refuses is a
+/// per-member failure: the worktree is gone by then, so the plane keeps the
+/// member and the run says so, and a re-run can only report the worktree
+/// `already gone` — nothing records which branch it was on, so the branch is
+/// left for `doctor`, which reports branches with no worktree and no plane.
+fn delete_branch(
+    one: &Checked,
+    context: &TeardownContext<'_>,
+) -> Result<BranchDisposition, EngineError> {
+    let Some(branch) = one.branch() else {
+        return Ok(BranchDisposition::None);
+    };
+    if !one.owned {
+        return Ok(BranchDisposition::Kept);
+    }
+    let Some(source) = &one.source else {
+        return Ok(BranchDisposition::None);
+    };
+
+    if !context.git.branch_exists(source, &branch)? {
+        return Ok(BranchDisposition::Deleted);
+    }
+
+    context.git.delete_branch(source, &branch)?;
+
+    Ok(BranchDisposition::Deleted)
 }
 
 /// How hard git may push, decided by what the user actually waived — or by the
@@ -622,29 +701,10 @@ fn resolve(spec: &str, context: &TeardownContext<'_>) -> Result<MemberRef, Engin
         // spells it — including a member whose repo has been **deleted**, which
         // is the one `--waive source_repo_missing` exists for and which plain
         // `canonicalize` cannot resolve at all.
-        MemberRef::Repo(path) => MemberRef::Repo(canonical_path(&expand_home(&path, context))),
+        MemberRef::Repo(path) => {
+            MemberRef::Repo(canonical_path(&plan::expand_home(&path, context.home)))
+        }
     })
-}
-
-/// The repo a member's worktree comes from, where it is still there.
-///
-/// One `stat`, and the whole of the `source_repo_missing` check: with ad-hoc
-/// members only, the source is the path the plane file records.
-fn source_repo(member: &Member) -> Option<PathBuf> {
-    match &member.source {
-        // A project's source repo lives under the projects directory, and
-        // nothing registers a project yet — `bp project add` is a later slice.
-        MemberRef::Project(_) => None,
-        MemberRef::Repo(path) => path.is_dir().then(|| path.clone()),
-    }
-}
-
-/// A leading `~`, replaced by the home directory the engine was built with.
-fn expand_home(path: &Path, context: &TeardownContext<'_>) -> PathBuf {
-    match (path.strip_prefix("~"), context.home) {
-        (Ok(rest), Some(home)) => home.join(rest),
-        _ => path.to_path_buf(),
-    }
 }
 
 impl Checked {

@@ -153,6 +153,18 @@ pub enum EngineError {
     MemberPathAmbiguous { spec: String },
     /// An ad-hoc member pointing at something that is not a git repository.
     MemberNotARepository { path: PathBuf, reason: String },
+    /// The default branch intent, with the fetch switched off.
+    ///
+    /// Refused at **request validation**, before anything is touched.
+    /// `Resolve` creates a branch when it does not resolve, so
+    /// `bp add @api:colleagues-branch --no-fetch` against a stale source repo
+    /// silently creates a new, unrelated branch of that name and the user finds
+    /// out at push time, having already committed (ADR-0007).
+    BranchIntentRequiresFetch {
+        /// The branch that would have been cut, where the request named one, so
+        /// the remedy can say which. `None` where every member carried its own.
+        branch: Option<String>,
+    },
     /// `--new-branch` on a branch that exists, or `--existing-branch` on one
     /// that does not.
     BranchIntentUnmet {
@@ -192,6 +204,19 @@ pub enum EngineError {
         members: Vec<PerMember<CreatedMember>>,
         rollback: Vec<PerMember<()>>,
         /// Whether the unwind itself failed, leaving a directory behind.
+        remnant: bool,
+    },
+    /// `add` put nothing into the plane. The per-member rows ride inside the
+    /// error, as they do for [`EngineError::CreateAborted`] — but the plane
+    /// itself is somebody's work, so there is nothing to discard and no latch
+    /// to set: the entries this run wrote are dropped and the worktrees it
+    /// created are force-removed, leaving the plane exactly as it was found.
+    AddAborted {
+        plane: String,
+        members: Vec<PerMember<CreatedMember>>,
+        rollback: Vec<PerMember<()>>,
+        /// Whether the unwind itself failed, so the plane is **not** back as it
+        /// was and a listed member has no worktree.
         remnant: bool,
     },
     /// Work that would be lost. **Every** reason across **every** member, in
@@ -297,12 +322,14 @@ impl EngineError {
             EngineError::BranchUnspecified { .. } => "branch_unspecified",
             EngineError::MemberPathAmbiguous { .. } => "member_path_ambiguous",
             EngineError::MemberNotARepository { .. } => "member_not_a_repository",
+            EngineError::BranchIntentRequiresFetch { .. } => "branch_intent_requires_fetch",
             EngineError::BranchIntentUnmet { .. } => "branch_intent_unmet",
             EngineError::BaseBranchUnresolved { .. } => "base_branch_unresolved",
             EngineError::BranchOccupied { .. } => "branch_occupied",
             EngineError::ParseError { .. } => "parse_error",
             EngineError::GitFailed { .. } => "git_failed",
             EngineError::CreateAborted { .. } => "create_aborted",
+            EngineError::AddAborted { .. } => "add_aborted",
             EngineError::Refused { .. } => "refused",
             EngineError::PlaneIncomplete { .. } => "plane_incomplete",
             EngineError::ProjectNotInPlane { .. } => "project_not_in_plane",
@@ -338,6 +365,7 @@ impl EngineError {
             | EngineError::BranchUnspecified { .. }
             | EngineError::MemberPathAmbiguous { .. }
             | EngineError::MemberNotARepository { .. }
+            | EngineError::BranchIntentRequiresFetch { .. }
             | EngineError::BranchIntentUnmet { .. }
             | EngineError::BaseBranchUnresolved { .. }
             | EngineError::ProjectNotInPlane { .. } => ExitCode::Usage,
@@ -349,6 +377,7 @@ impl EngineError {
             | EngineError::ParseError { .. }
             | EngineError::GitFailed { .. }
             | EngineError::CreateAborted { .. }
+            | EngineError::AddAborted { .. }
             | EngineError::ProjectAddAborted { .. }
             | EngineError::FetchFailed { .. }
             | EngineError::Refused { .. }
@@ -393,6 +422,13 @@ impl EngineError {
             // because of it. A member that succeeded is not a problem — it was
             // unwound with the rest.
             EngineError::CreateAborted {
+                members, rollback, ..
+            } => members
+                .iter()
+                .filter_map(problem_from_row)
+                .chain(rollback.iter().filter_map(problem_from_rollback))
+                .collect(),
+            EngineError::AddAborted {
                 members, rollback, ..
             } => members
                 .iter()
@@ -510,6 +546,14 @@ impl EngineError {
                 "Point at a directory that is a git repository, or create one with git init."
                     .to_owned(),
             ),
+            EngineError::BranchIntentRequiresFetch { branch } => Some(match branch {
+                Some(branch) => format!(
+                    "Drop --no-fetch, or pass --new-branch to create {branch} deliberately."
+                ),
+                None => "Drop --no-fetch, or pass --new-branch to create the branch \
+                         deliberately."
+                    .to_owned(),
+            }),
             EngineError::BranchIntentUnmet { wanted, .. } => Some(match wanted {
                 BranchWanted::New => {
                     "Drop --new-branch, or choose a name no branch has taken.".to_owned()
@@ -541,6 +585,14 @@ impl EngineError {
             } else {
                 "Nothing was left behind. Fix what the rows report, then run bp create again."
                     .to_owned()
+            }),
+            EngineError::AddAborted { plane, remnant, .. } => Some(if *remnant {
+                format!(
+                    "Run bp show -p {plane} to see which members have no worktree, \
+                     then bp rm them."
+                )
+            } else {
+                "Fix what the rows report, then run bp add again.".to_owned()
             }),
             EngineError::Refused { refusals, .. } => Some(format!(
                 "Inspect the members listed. Re-run with {} to accept losing that work.",
@@ -668,6 +720,9 @@ impl fmt::Display for EngineError {
             EngineError::MemberNotARepository { path, reason } => {
                 write!(f, "{} {reason}", path.display())
             }
+            EngineError::BranchIntentRequiresFetch { .. } => {
+                f.write_str("--no-fetch cannot be combined with the default branch intent")
+            }
             EngineError::BranchIntentUnmet {
                 member,
                 branch,
@@ -698,6 +753,16 @@ impl fmt::Display for EngineError {
                     )
                 } else {
                     write!(f, "create did not finish; {id} was removed")
+                }
+            }
+            EngineError::AddAborted { plane, remnant, .. } => {
+                if *remnant {
+                    write!(
+                        f,
+                        "add did not finish and {plane} could not be returned to its prior state"
+                    )
+                } else {
+                    write!(f, "add did not finish; {plane} is unchanged")
                 }
             }
             EngineError::Refused {

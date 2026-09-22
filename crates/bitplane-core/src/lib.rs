@@ -9,6 +9,7 @@
 //! Paths are held as path types throughout and never as strings. ADR-0001 defers
 //! Windows, and that deferral binds exactly this one constraint.
 
+pub mod add;
 pub mod create;
 pub mod destroy;
 pub mod directories;
@@ -24,6 +25,7 @@ pub mod local;
 pub mod lock;
 pub mod member;
 pub mod outcome;
+pub mod plan;
 pub mod plane_dir;
 pub mod plane_file;
 pub mod plane_id;
@@ -39,6 +41,7 @@ pub mod termination;
 pub mod time;
 pub mod toml_text;
 pub mod wire;
+pub mod worktrees;
 
 #[doc(hidden)]
 pub mod testing;
@@ -62,9 +65,10 @@ pub use project_file::{ProjectFile, ProjectSource};
 pub use refusal::{Reason, Refusal, Waivers};
 pub use termination::Termination;
 pub use wire::{
-    BranchIntent, CreatedMember, Fetched, MemberStatus, MemberView, MemberWork, PlaneCreateRequest,
-    PlaneCreated, PlaneDestroyRequest, PlaneDestroyed, PlaneList, PlaneListRequest, PlaneRef,
-    PlaneRemoveRequest, PlaneRemoved, PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView,
-    ProjectAddRequest, ProjectAdded, ProjectFetchRequest, ProjectFetched, ProjectListing,
-    ProjectSummary, RemovedMember, Request, Response, dispatch,
+    BranchDisposition, BranchIntent, CreatedMember, Fetched, MemberStatus, MemberView, MemberWork,
+    PlaneAddRequest, PlaneAdded, PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest,
+    PlaneDestroyed, PlaneList, PlaneListRequest, PlaneRef, PlaneRemoveRequest, PlaneRemoved,
+    PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded,
+    ProjectFetchRequest, ProjectFetched, ProjectListing, ProjectSummary, RemovedMember, Request,
+    Response, dispatch,
 };

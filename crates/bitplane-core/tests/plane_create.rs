@@ -13,7 +13,7 @@ use bitplane_core::plane_dir::{BITPLANE_DIR, LATCH_NAME};
 use bitplane_core::testing::{git, repository_with_one_commit, scratch_dir};
 use bitplane_core::{
     BranchIntent, Directories, Engine, EngineError, ExitCode, Interrupt, LocalEngine, MemberRef,
-    Occupant, Outcome, PlaneCreateRequest, PlaneCreated, PlaneFile, SkipReason,
+    Occupant, Outcome, PlaneCreateRequest, PlaneCreated, PlaneFile, ProjectAddRequest, SkipReason,
 };
 
 #[test]
@@ -49,6 +49,137 @@ fn a_plane_of_two_ad_hoc_members_lands_a_worktree_each() {
         );
         assert_eq!(member.member, MemberRef::Repo(repository.clone()));
     }
+}
+
+#[test]
+fn a_plane_mixes_registered_projects_and_ad_hoc_members() {
+    let host = Host::new("create-mixed");
+    host.project("codestyle");
+    let alpha = host.repository("alpha");
+
+    let created = host
+        .create(PlaneCreateRequest {
+            members: vec!["@codestyle".to_owned(), alpha.display().to_string()],
+            ..request(&[], "feat-login")
+        })
+        .unwrap();
+
+    assert_eq!(
+        created.members[0].member,
+        MemberRef::parse("@codestyle").unwrap(),
+        "a project name never carries the sigil in memory"
+    );
+
+    let file = PlaneFile::read(&created.directory.join("plane.toml")).unwrap();
+    assert_eq!(
+        file.members
+            .iter()
+            .map(|member| (member.path.to_string(), member.source.to_string()))
+            .collect::<Vec<(String, String)>>(),
+        vec![
+            ("forges/codestyle".to_owned(), "@codestyle".to_owned()),
+            ("repos/alpha".to_owned(), alpha.display().to_string()),
+        ],
+        "the sigil form is what the plane file stores, and the only place it is stored"
+    );
+    assert!(created.directory.join("forges/codestyle/.git").exists());
+}
+
+#[test]
+fn an_owned_project_lands_where_its_url_says_and_not_where_its_bare_repo_is() {
+    let host = Host::new("create-owned-layout");
+    host.project("codestyle");
+
+    let created = host
+        .create(PlaneCreateRequest {
+            members: vec!["@codestyle".to_owned()],
+            ..request(&[], "feat-login")
+        })
+        .unwrap();
+
+    assert_eq!(
+        created.members[0].value().unwrap().path.to_string(),
+        "forges/codestyle",
+        "derived from the project's source, not from <project-dir>/repo.git"
+    );
+}
+
+#[test]
+fn a_branch_pushed_after_registration_is_joined_because_the_fetch_ran_first() {
+    let host = Host::new("create-fetch-first");
+    let forge = host.project("codestyle");
+
+    // The colleague pushes after `bp project add`, so only a fetch can make
+    // this branch visible to the source repo.
+    git(&forge, &["branch", "colleagues-branch"]);
+    let theirs = git(&forge, &["rev-parse", "colleagues-branch"]);
+
+    let created = host
+        .create(PlaneCreateRequest {
+            members: vec!["@codestyle:colleagues-branch".to_owned()],
+            ..request(&[], "unused")
+        })
+        .unwrap();
+
+    let landed = created.members[0].value().unwrap();
+    assert!(
+        !landed.created_branch,
+        "the branch is the colleague's, not a new one of the same name"
+    );
+    assert_eq!(
+        git(
+            &created.directory.join(landed.path.as_path()),
+            &["rev-parse", "HEAD"]
+        ),
+        theirs,
+        "resolving against a stale source repo would have cut a new branch off main"
+    );
+}
+
+#[test]
+fn the_default_intent_with_no_fetch_is_refused_before_anything_is_claimed() {
+    let host = Host::new("create-no-fetch");
+    let alpha = host.repository("alpha");
+
+    let error = host
+        .create(PlaneCreateRequest {
+            fetch: false,
+            ..request(&[&alpha], "feat-x")
+        })
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        EngineError::BranchIntentRequiresFetch {
+            branch: Some("feat-x".to_owned()),
+        }
+    );
+    assert_eq!(error.exit_code(), ExitCode::Usage);
+    assert_eq!(
+        error.envelope().remedy.as_deref(),
+        Some("Drop --no-fetch, or pass --new-branch to create feat-x deliberately.")
+    );
+    assert!(host.planes_are_empty(), "nothing was touched at all");
+}
+
+#[test]
+fn a_name_that_is_not_a_project_is_refused_before_anything_is_claimed() {
+    let host = Host::new("create-unknown-project");
+
+    let error = host
+        .create(PlaneCreateRequest {
+            members: vec!["@nowhere".to_owned()],
+            ..request(&[], "feat-x")
+        })
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        EngineError::ProjectNotFound {
+            name: "nowhere".to_owned(),
+        }
+    );
+    assert!(host.planes_are_empty());
 }
 
 #[test]
@@ -312,6 +443,7 @@ fn a_branch_suffix_beats_the_shared_branch_for_that_member_alone() {
             branch: Some("feat-login".to_owned()),
             id: None,
             intent: BranchIntent::Resolve,
+            fetch: true,
         })
         .unwrap();
 
@@ -703,6 +835,7 @@ fn request(members: &[&Path], branch: &str) -> PlaneCreateRequest {
         branch: Some(branch.to_owned()),
         id: None,
         intent: BranchIntent::Resolve,
+        fetch: true,
     }
 }
 
@@ -732,6 +865,22 @@ impl Host {
 
     fn repository(&self, name: &str) -> PathBuf {
         self.repository_at(&format!("repos/{name}"))
+    }
+
+    /// An owned project, registered the way `bp project add` registers one. A
+    /// path is a git URL, so the "forge" is an ordinary local repository and
+    /// this is the code path a real one takes.
+    fn project(&self, name: &str) -> PathBuf {
+        let forge = self.repository_at(&format!("forges/{name}"));
+
+        LocalEngine::new(self.directories.clone())
+            .project_add(ProjectAddRequest {
+                url: forge.display().to_string(),
+                name: Some(name.to_owned()),
+            })
+            .expect("the fixture project was registered");
+
+        forge
     }
 
     fn repository_at(&self, relative: &str) -> PathBuf {

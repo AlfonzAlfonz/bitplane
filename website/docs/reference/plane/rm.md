@@ -6,12 +6,10 @@ title: bp rm
 
 :::in-progress
 
-The fan-out, the five refusals, `--waive` and the converging
-`already gone` row all work. Two parts are not there yet:
+The fan-out, the five refusals, `--waive`, the converging `already gone`
+row and branch deletion for owned projects all work. One part is not there
+yet:
 
-- **No branch is ever deleted.** Branch deletion happens only for owned
-  projects, and a plane cannot hold one yet, so every member is treated
-  as a repo `bp` does not own.
 - **`--no-scripts` is not accepted.** No `pre_worktree_remove` script
   runs, so there is nothing to skip.
 
@@ -83,8 +81,21 @@ names the member and the branch, and `--waive unpushed` proceeds and deletes.
 
 For an **adopted** project or an **ad-hoc member**, the worktree goes and **no
 ref is touched**. `bp` cannot tell a branch it created from one you have had for
-two years in a repo it merely pointed at, and it owns nothing there. The output
-says so per member.
+two years in a repo it merely pointed at, and it owns nothing there. The row
+says `branch kept`, so the news arrives per member rather than being left to
+the absence of `branch deleted`:
+
+```
+$ bp rm ~/projects/bitplane
+```
+```
+bp-a3f9c2e1  ~/planes/bp-a3f9c2e1
+
+  /Users/alfonz/projects/bitplane  feat-login  removed  projects/bitplane (branch kept)
+```
+
+A worktree that was detached, or one `bp` could not ask git about, has no branch
+either way and the row says nothing about one.
 
 ## Output
 

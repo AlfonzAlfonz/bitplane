@@ -4,10 +4,14 @@ title: bp add
 
 # `bp add`
 
-:::not-implemented
+:::in-progress
 
-`bp add` does not exist yet. This page is the specification it is being built
-against, not a description of the binary.
+Everything on this page works: the branch rules, branch intent and its
+refusal of `--no-fetch`, the typed duplicate, the surgical unwind, and the
+latch that `add` never sets. One part is not there yet:
+
+- **`--no-scripts` is not accepted.** No `post_worktree_create` script runs,
+  so there is nothing to switch off.
 
 :::
 
@@ -127,7 +131,7 @@ Exit `1`. The plane returns to its prior state.
 ```
 error[add_aborted]: add did not finish; bp-a3f9c2e1 is unchanged
 
-  @docs  failed: could not fetch origin: Connection refused
+  @docs  failed: git worktree add exited 128: fatal: 'feat-login' is already used by worktree
 
 remedy: Fix what the rows report, then run bp add again.
 ```
@@ -137,8 +141,26 @@ remedy: Fix what the rows report, then run bp add again.
 licenses a [refusal-free destroy](./destroy.md#a-plane-that-was-never-finished-being-created). A plane full of real
 work flagged as free to discard would be a trapdoor.
 
-If the unwind itself dies, the plane file lists a member with no worktree. That
-shows up as a finding on [`bp show`](./show.md), and
+The fetch happens **before** the plane's lock is taken, so a forge that will not
+answer stops the run with nothing added and no lock held.
+
+If the unwind itself dies, the plane file lists a member with no worktree, and
+the failure says so rather than claiming the plane is unchanged:
+
+```
+error[add_aborted]: add did not finish and bp-a3f9c2e1 could not be returned to its prior state
+
+remedy: Run bp show -p bp-a3f9c2e1 to see which members have no worktree, then bp rm them.
+```
+
+An interrupt whose unwind could not finish says the same thing on stdout, since
+`add` still answers with its rows there:
+
+```
+bp-a3f9c2e1 still lists members with no worktree; run bp rm to clear them.
+```
+
+That shows up as a finding on [`bp show`](./show.md), and
 [`bp rm @docs`](./rm.md) clears it — `rm` tolerates a member whose worktree is
 already gone.
 

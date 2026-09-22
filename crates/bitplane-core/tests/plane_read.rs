@@ -749,6 +749,7 @@ impl Host {
                 branch: Some(branch.to_owned()),
                 id: id.map(ToOwned::to_owned),
                 intent: BranchIntent::Resolve,
+                fetch: true,
             })
             .expect("the fixture plane was created")
     }

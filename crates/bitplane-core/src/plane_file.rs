@@ -105,7 +105,7 @@ impl PlaneFile {
     ///
     /// Rendered rather than round-tripped, because `create` writes a file that
     /// did not exist. Changing the membership of one that does is a
-    /// `toml_edit` read-modify-write, and arrives with `bp add`.
+    /// `toml_edit` read-modify-write: [`with`] and [`without`].
     pub fn render(&self) -> String {
         let keys: Vec<String> = self
             .members
@@ -156,6 +156,32 @@ pub fn without(path: &Path, text: &str, removed: &[WorktreePath]) -> Result<Stri
 
     for key in removed {
         table.remove(&key.to_string());
+    }
+
+    Ok(document.to_string())
+}
+
+/// `text`, rewritten with `added` appended to the membership.
+///
+/// A `toml_edit` read-modify-write for the same reason [`without`] is one: the
+/// file may have been hand-edited, and a re-render would throw away every
+/// comment in it. The new entries land at the end of `[members]`, which is the
+/// order every fan-out prints them in afterwards.
+pub fn with(path: &Path, text: &str, added: &[Member]) -> Result<String, EngineError> {
+    let mut document: DocumentMut = text
+        .parse()
+        .map_err(|err: toml_edit::TomlError| parse_error(path, err.message()))?;
+
+    let table = document
+        .get_mut("members")
+        .and_then(Item::as_table_like_mut)
+        .ok_or_else(|| parse_error(path, "members must be a table"))?;
+
+    for member in added {
+        table.insert(
+            &member.path.to_string(),
+            Item::Value(Value::from(member.source.to_string())),
+        );
     }
 
     Ok(document.to_string())
@@ -499,6 +525,83 @@ mod tests {
             "got {rewritten}"
         );
         assert!(!rewritten.contains("codestyle"), "got {rewritten}");
+    }
+
+    #[test]
+    fn a_member_added_to_the_file_lands_last_and_reads_back() {
+        let text = plane_file().render();
+
+        let rewritten = with(
+            Path::new(PATH),
+            &text,
+            &[Member {
+                path: WorktreePath::parse("acme/docs").unwrap(),
+                source: MemberRef::parse("@docs").unwrap(),
+            }],
+        )
+        .unwrap();
+
+        let file = PlaneFile::parse(Path::new(PATH), &rewritten).unwrap();
+        assert_eq!(
+            file.members
+                .iter()
+                .map(|member| member.path.to_string())
+                .collect::<Vec<String>>(),
+            ["acme/codestyle", "projects/bitplane", "acme/docs"],
+            "declaration order is the order every fan-out prints"
+        );
+        assert_eq!(file.id, plane_file().id, "the other two keys are untouched");
+    }
+
+    #[test]
+    fn what_a_user_wrote_around_the_membership_survives_an_addition() {
+        let text = concat!(
+            "# do not reap, long-running migration\n",
+            "version = 1\nid = \"bp-a3f9c2e1\"\n\n[members]\n",
+            "\"acme/api\" = \"@api\"  # the one that matters\n",
+        );
+
+        let rewritten = with(
+            Path::new(PATH),
+            text,
+            &[Member {
+                path: WorktreePath::parse("acme/docs").unwrap(),
+                source: MemberRef::parse("@docs").unwrap(),
+            }],
+        )
+        .unwrap();
+
+        assert!(
+            rewritten.starts_with("# do not reap, long-running migration"),
+            "got {rewritten}"
+        );
+        assert!(
+            rewritten.contains("# the one that matters"),
+            "got {rewritten}"
+        );
+        assert!(rewritten.contains("@docs"), "got {rewritten}");
+    }
+
+    #[test]
+    fn a_member_added_and_then_dropped_again_leaves_the_file_byte_identical() {
+        // What a failed `bp add` does: it writes its entries before the
+        // worktrees and drops exactly those on the way out, so the plane comes
+        // back to what it was rather than to something equivalent.
+        let text = plane_file().render();
+        let added = [Member {
+            path: WorktreePath::parse("acme/docs").unwrap(),
+            source: MemberRef::parse("@docs").unwrap(),
+        }];
+
+        let grown = with(Path::new(PATH), &text, &added).unwrap();
+        let shrunk = without(
+            Path::new(PATH),
+            &grown,
+            &[WorktreePath::parse("acme/docs").unwrap()],
+        )
+        .unwrap();
+
+        assert_eq!(shrunk, text);
     }
 
     #[test]

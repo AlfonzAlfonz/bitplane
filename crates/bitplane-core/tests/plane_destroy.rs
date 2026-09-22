@@ -14,11 +14,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 
 use bitplane_core::plane_dir::{BITPLANE_DIR, LATCH_NAME};
-use bitplane_core::testing::{git, repository_with_an_origin, scratch_dir};
+use bitplane_core::testing::{
+    git, repository_with_an_origin, repository_with_one_commit, scratch_dir,
+};
 use bitplane_core::{
-    BranchIntent, Directories, Engine, EngineError, ExitCode, Interrupt, LocalEngine, MemberRef,
-    Outcome, PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest, PlaneDestroyed, PlaneFile,
-    PlaneRef, PlaneRemoveRequest, PlaneRemoved, Reason, SkipReason, Teardown,
+    BranchDisposition, BranchIntent, Directories, Engine, EngineError, ExitCode, Interrupt,
+    LocalEngine, MemberRef, Outcome, PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest,
+    PlaneDestroyed, PlaneFile, PlaneRef, PlaneRemoveRequest, PlaneRemoved, ProjectAddRequest,
+    Reason, SkipReason, Teardown,
 };
 
 #[test]
@@ -48,17 +51,190 @@ fn a_plane_destroys_to_nothing() {
 }
 
 #[test]
+fn an_owned_projects_branch_goes_with_its_worktree() {
+    let host = Host::new("destroy-owned-branch");
+    host.project("codestyle");
+    let plane = host.project_plane(&["@codestyle"], "feat-login");
+
+    let destroyed = host.destroy(by_id(&plane), &[]).unwrap();
+
+    let removed = destroyed.members[0].value().unwrap();
+    assert_eq!(removed.branch.as_deref(), Some("feat-login"));
+    assert_eq!(removed.disposition, BranchDisposition::Deleted);
+    assert!(
+        !branches_of(&host.source_repo("codestyle")).contains(&"feat-login".to_owned()),
+        "for a repo bitplane built, refs/heads/* holds exactly the plane branches"
+    );
+}
+
+#[test]
+fn the_branch_deleted_is_the_one_the_worktree_is_actually_on() {
+    // Nothing records the branch a worktree was created on, so `destroy`
+    // deletes what it finds — and the branch the user switched away from is
+    // left behind with no record of it, which is `doctor`'s business.
+    let host = Host::new("destroy-owned-switched");
+    host.project("codestyle");
+    let plane = host.project_plane(&["@codestyle"], "feat-login");
+    let worktree = plane.directory.join("forges/codestyle");
+    git(&worktree, &["checkout", "--quiet", "-b", "somewhere-else"]);
+
+    let destroyed = host.destroy(by_id(&plane), &[]).unwrap();
+
+    let removed = destroyed.members[0].value().unwrap();
+    assert_eq!(removed.branch.as_deref(), Some("somewhere-else"));
+    assert_eq!(removed.disposition, BranchDisposition::Deleted);
+
+    let left = branches_of(&host.source_repo("codestyle"));
+    assert!(!left.contains(&"somewhere-else".to_owned()));
+    assert!(
+        left.contains(&"feat-login".to_owned()),
+        "the namespace is clean but not self-pruning"
+    );
+}
+
+#[test]
+fn an_owned_projects_branch_is_gated_by_the_unpushed_check_and_by_nothing_else() {
+    let host = Host::new("destroy-owned-unpushed");
+    host.project("codestyle");
+    let plane = host.project_plane(&["@codestyle"], "feat-login");
+    commit(&plane.directory.join("forges/codestyle"), "work");
+
+    let refused = host.destroy(by_id(&plane), &[]).unwrap_err();
+    assert!(
+        matches!(refused, EngineError::Refused { .. }),
+        "a branch with commits nobody else has is not bitplane's to delete: {refused:?}"
+    );
+    assert!(branches_of(&host.source_repo("codestyle")).contains(&"feat-login".to_owned()));
+
+    // No new waiver and no second gate: the one the refusal named is the one
+    // that lets the branch go with the worktree.
+    let destroyed = host.destroy(by_id(&plane), &[Reason::Unpushed]).unwrap();
+
+    assert_eq!(
+        destroyed.members[0].value().unwrap().disposition,
+        BranchDisposition::Deleted
+    );
+    assert!(!branches_of(&host.source_repo("codestyle")).contains(&"feat-login".to_owned()));
+}
+
+#[test]
+fn an_owned_branch_is_still_weighed_when_the_worktree_directory_has_been_deleted() {
+    // The commits at risk are the branch's, not the working tree's, and the
+    // branch is about to go with it — so a directory the user removed by hand
+    // must not be a way past the veto.
+    let host = Host::new("destroy-owned-missing-directory");
+    host.project("codestyle");
+    let plane = host.project_plane(&["@codestyle"], "feat-login");
+    let worktree = plane.directory.join("forges/codestyle");
+    commit(&worktree, "work");
+    fs::remove_dir_all(&worktree).unwrap();
+
+    let refused = host.destroy(by_id(&plane), &[]).unwrap_err();
+
+    assert!(
+        matches!(refused, EngineError::Refused { .. }),
+        "got {refused:?}"
+    );
+    assert!(
+        refused
+            .envelope()
+            .problems
+            .iter()
+            .any(|problem| problem.message.contains("not on origin")),
+        "got {:?}",
+        refused.envelope().problems
+    );
+    assert!(branches_of(&host.source_repo("codestyle")).contains(&"feat-login".to_owned()));
+}
+
+#[test]
+fn an_ad_hoc_members_missing_directory_refuses_over_nothing_because_its_branch_stays() {
+    let host = Host::new("destroy-ad-hoc-missing-directory");
+    let alpha = host.repository("alpha");
+    let plane = host.plane(&[&alpha], "feat-login");
+    let worktree = plane.directory.join("repos/alpha");
+    commit(&worktree, "work");
+    fs::remove_dir_all(&worktree).unwrap();
+
+    let destroyed = host.destroy(by_id(&plane), &[]).unwrap();
+
+    assert_eq!(
+        destroyed.members[0].value().unwrap().disposition,
+        BranchDisposition::Kept
+    );
+    assert!(
+        branches_of(&alpha).contains(&"feat-login".to_owned()),
+        "nothing was at risk, so there was nothing to refuse over"
+    );
+}
+
+#[test]
+fn a_branch_something_else_already_deleted_is_reported_as_deleted_rather_than_as_a_failure() {
+    let host = Host::new("destroy-branch-already-gone");
+    host.project("codestyle");
+    let plane = host.project_plane(&["@codestyle"], "feat-login");
+
+    // What a concurrent run, or a `git branch -D` by hand, leaves behind: the
+    // worktree registered and the branch already gone.
+    git(
+        &host.source_repo("codestyle"),
+        &["update-ref", "-d", "refs/heads/feat-login"],
+    );
+
+    let destroyed = host
+        .destroy(by_id(&plane), &[Reason::Uncommitted, Reason::Unpushed])
+        .unwrap();
+
+    assert_eq!(
+        destroyed.members[0].value().unwrap().disposition,
+        BranchDisposition::Deleted,
+        "the state asked for is the state reached; converging says so"
+    );
+}
+
+#[test]
+fn rm_deletes_an_owned_projects_branch_and_keeps_an_ad_hoc_members() {
+    let host = Host::new("rm-mixed-branches");
+    host.project("codestyle");
+    let alpha = host.repository("alpha");
+    let plane = host.project_plane(&["@codestyle", &alpha.display().to_string()], "feat-login");
+
+    let removed = host
+        .remove_specs(
+            by_id(&plane),
+            &["@codestyle", &alpha.display().to_string()],
+            &[],
+        )
+        .unwrap();
+
+    assert_eq!(
+        removed
+            .members
+            .iter()
+            .map(|row| row.value().unwrap().disposition)
+            .collect::<Vec<BranchDisposition>>(),
+        vec![BranchDisposition::Deleted, BranchDisposition::Kept],
+        "the response says what became of each member's branch"
+    );
+    assert!(!branches_of(&host.source_repo("codestyle")).contains(&"feat-login".to_owned()));
+    assert!(branches_of(&alpha).contains(&"feat-login".to_owned()));
+}
+
+#[test]
 fn no_branch_is_deleted_in_a_repo_bitplane_does_not_own() {
     // The sharpest asymmetry in the design: bitplane owns the refs in a repo it
-    // built and owns nothing in a repo it merely pointed at (ADR-0006). With
-    // ad-hoc members only, that means no branch is deleted at all yet.
+    // built and owns nothing in a repo it merely pointed at (ADR-0006).
     let host = Host::new("destroy-keeps-branches");
     let alpha = host.repository("alpha");
     let plane = host.plane(&[&alpha], "feat-login");
 
     let destroyed = host.destroy(by_id(&plane), &[]).unwrap();
 
-    assert!(!destroyed.members[0].value().unwrap().branch_deleted);
+    assert_eq!(
+        destroyed.members[0].value().unwrap().disposition,
+        BranchDisposition::Kept,
+        "bitplane owns no ref in an ad-hoc member's repo"
+    );
     assert!(
         branches_of(&alpha).contains(&"feat-login".to_owned()),
         "the branch is the user's; bitplane owns nothing here"
@@ -816,16 +992,46 @@ impl Host {
         path.canonicalize().expect("the repository was just made")
     }
 
+    /// An owned project, registered the way `bp project add` registers one.
+    fn project(&self, name: &str) -> PathBuf {
+        let forge = self.root.join("forges").join(name);
+        repository_with_one_commit(&forge);
+
+        self.engine()
+            .project_add(ProjectAddRequest {
+                url: forge.display().to_string(),
+                name: Some(name.to_owned()),
+            })
+            .expect("the fixture project was registered");
+
+        forge.canonicalize().expect("the forge was just made")
+    }
+
+    fn source_repo(&self, name: &str) -> PathBuf {
+        self.directories.projects().join(name).join("repo.git")
+    }
+
     fn plane(&self, members: &[&Path], branch: &str) -> PlaneCreated {
+        self.project_plane(
+            &members
+                .iter()
+                .map(|member| member.display().to_string())
+                .collect::<Vec<String>>()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<&str>>(),
+            branch,
+        )
+    }
+
+    fn project_plane(&self, members: &[&str], branch: &str) -> PlaneCreated {
         self.engine()
             .plane_create(PlaneCreateRequest {
-                members: members
-                    .iter()
-                    .map(|member| member.display().to_string())
-                    .collect(),
+                members: members.iter().map(|member| (*member).to_owned()).collect(),
                 branch: Some(branch.to_owned()),
                 id: None,
                 intent: BranchIntent::Resolve,
+                fetch: true,
             })
             .expect("the fixture plane was built")
     }
@@ -843,12 +1049,27 @@ impl Host {
         members: &[&Path],
         waive: &[Reason],
     ) -> Result<PlaneRemoved, EngineError> {
+        let members: Vec<String> = members
+            .iter()
+            .map(|member| member.display().to_string())
+            .collect();
+
+        self.remove_specs(
+            plane,
+            &members.iter().map(String::as_str).collect::<Vec<&str>>(),
+            waive,
+        )
+    }
+
+    fn remove_specs(
+        &self,
+        plane: PlaneRef,
+        members: &[&str],
+        waive: &[Reason],
+    ) -> Result<PlaneRemoved, EngineError> {
         self.engine().plane_remove(PlaneRemoveRequest {
             plane,
-            members: members
-                .iter()
-                .map(|member| member.display().to_string())
-                .collect(),
+            members: members.iter().map(|member| (*member).to_owned()).collect(),
             waive: waive.to_vec(),
         })
     }

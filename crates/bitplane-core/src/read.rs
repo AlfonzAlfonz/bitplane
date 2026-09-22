@@ -24,6 +24,7 @@ use crate::error::EngineError;
 use crate::head::Head;
 use crate::health::{Finding, HealthCheck, PlaneHealth};
 use crate::member::{MemberRef, WorktreePath};
+use crate::plan;
 use crate::plane_dir::{BITPLANE_DIR, LATCH_NAME};
 use crate::plane_file::{PLANE_FILE_NAME, PlaneFile};
 use crate::repo::Git;
@@ -363,15 +364,12 @@ fn is_prunable(plane: &Path, path: &WorktreePath, source: &Path, git: &Git) -> b
 
 /// The repository a member is a worktree of.
 ///
-/// An ad-hoc member names its repo outright. A project keeps its source repo
-/// inside its project directory, and finding it means reading `project.toml` —
-/// which arrives with `bp project add`; until then the project directory is
-/// what a read can check for, and its absence is the same finding either way.
+/// An ad-hoc member names its repo outright; a project's is found by reading
+/// its `project.toml`. Either way this is the same answer the teardown verbs
+/// get, because it is the same function — two ideas of where a member comes
+/// from would be two answers.
 fn source_of(member: &MemberRef, directories: &Directories) -> PathBuf {
-    match member {
-        MemberRef::Repo(path) => path.clone(),
-        MemberRef::Project(name) => directories.projects().join(name.as_str()),
-    }
+    plan::source_of(member, directories).at
 }
 
 /// When the plane directory was made, where the filesystem can say.

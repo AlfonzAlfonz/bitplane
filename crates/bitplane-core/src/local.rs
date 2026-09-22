@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::add::{self, AddContext};
 use crate::create::{self, CreateContext};
 use crate::destroy::{self, TeardownContext};
 use crate::directories::{Directories, Environment, SystemEnvironment};
@@ -15,10 +16,10 @@ use crate::project_list;
 use crate::read::{self, ReadContext};
 use crate::repo::Git;
 use crate::wire::{
-    PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest, PlaneDestroyed, PlaneList,
-    PlaneListRequest, PlaneRemoveRequest, PlaneRemoved, PlaneShowRequest, PlaneStatus,
-    PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded, ProjectFetchRequest,
-    ProjectFetched, ProjectListing,
+    PlaneAddRequest, PlaneAdded, PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest,
+    PlaneDestroyed, PlaneList, PlaneListRequest, PlaneRemoveRequest, PlaneRemoved,
+    PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded,
+    ProjectFetchRequest, ProjectFetched, ProjectListing,
 };
 
 /// bitplane on the local host.
@@ -136,6 +137,19 @@ impl Engine for LocalEngine {
         create::plane_create(
             &request,
             &CreateContext {
+                directories: &self.directories,
+                git: &self.git,
+                home: self.home.as_deref(),
+                interrupt: self.interrupt,
+                on_lock_wait: &*self.on_lock_wait,
+            },
+        )
+    }
+
+    fn plane_add(&self, request: PlaneAddRequest) -> Result<PlaneAdded, EngineError> {
+        add::plane_add(
+            &request,
+            &AddContext {
                 directories: &self.directories,
                 git: &self.git,
                 home: self.home.as_deref(),

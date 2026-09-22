@@ -17,10 +17,10 @@
 
 use crate::error::EngineError;
 use crate::wire::{
-    PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest, PlaneDestroyed, PlaneList,
-    PlaneListRequest, PlaneRemoveRequest, PlaneRemoved, PlaneShowRequest, PlaneStatus,
-    PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded, ProjectFetchRequest,
-    ProjectFetched, ProjectListing,
+    PlaneAddRequest, PlaneAdded, PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest,
+    PlaneDestroyed, PlaneList, PlaneListRequest, PlaneRemoveRequest, PlaneRemoved,
+    PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded,
+    ProjectFetchRequest, ProjectFetched, ProjectListing,
 };
 
 /// The reads: `plane_list`, `plane_show`, `plane_status`, `project_list`,
@@ -63,6 +63,16 @@ pub trait Engine: Reader {
     /// A failure returns `Err` carrying the per-member rows, because the
     /// envelope `Err` is for an operation that produced no durable state.
     fn plane_create(&self, request: PlaneCreateRequest) -> Result<PlaneCreated, EngineError>;
+
+    /// Puts the members named into a plane that already exists.
+    ///
+    /// **Cannot abort-and-remove**, because the plane holds other members full
+    /// of work: a failure force-removes only the worktrees this run created,
+    /// drops only its own entries from the plane file, and leaves the plane as
+    /// it found it. It never sets the incomplete latch, under any failure —
+    /// that marker means *nothing in here is yours*, and a plane holding the
+    /// user's work carrying it would be a trapdoor (ADR-0004).
+    fn plane_add(&self, request: PlaneAddRequest) -> Result<PlaneAdded, EngineError>;
 
     /// Registers a project from a URL, building the source repo bitplane owns.
     ///

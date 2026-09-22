@@ -179,6 +179,35 @@ impl Git {
         Ok(found)
     }
 
+    /// The forge's own branch of this name, as of the last fetch, named as the
+    /// ref a new local branch would be cut from.
+    ///
+    /// The other half of resolving a branch, and the half that makes fetching
+    /// first worth doing: for a bitplane-owned source repo `refs/heads/*` holds
+    /// only the branches plane members were created on, so a colleague's branch
+    /// is never there and asking [`Git::branch_exists`] alone would answer *no*
+    /// about a branch that plainly exists (ADR-0005).
+    pub fn origin_branch(&self, repo: &Path, branch: &str) -> Result<Option<String>, EngineError> {
+        let reference = format!("{ORIGIN_REFS}{branch}");
+
+        Ok(self
+            .status(repo, &["show-ref", "--verify", "--quiet", &reference])?
+            .then_some(reference))
+    }
+
+    /// What `refs/heads/<branch>` points at in `repo`.
+    ///
+    /// The tip of a branch **whose worktree is no longer on disk**, which is the
+    /// one case where the commits at risk cannot be read from a working tree.
+    pub fn branch_tip(&self, repo: &Path, branch: &str) -> Result<Option<String>, EngineError> {
+        let reference = format!("refs/heads/{branch}");
+        let resolved = self.captured(repo, &["rev-parse", "--verify", "--quiet", &reference])?;
+
+        Ok(resolved
+            .map(|tip| tip.trim().to_owned())
+            .filter(|tip| !tip.is_empty()))
+    }
+
     /// Every worktree of `repo`, its own included.
     pub fn worktrees(&self, repo: &Path) -> Result<Vec<WorktreeEntry>, EngineError> {
         let listing = self.run(repo, &["worktree", "list", "--porcelain", "-z"])?;

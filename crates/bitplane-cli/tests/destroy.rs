@@ -26,8 +26,8 @@ fn a_destroyed_plane_prints_a_row_per_member_and_then_says_it_is_gone() {
             concat!(
                 "auth-work  {planes}/auth-work\n",
                 "\n",
-                "  {alpha}  feat-login  removed  repos/alpha\n",
-                "  {beta}   feat-login  removed  repos/beta\n",
+                "  {alpha}  feat-login  removed  repos/alpha (branch kept)\n",
+                "  {beta}   feat-login  removed  repos/beta (branch kept)\n",
                 "\n",
                 "destroyed auth-work\n",
             ),
@@ -106,7 +106,7 @@ fn a_waiver_is_echoed_in_the_row_it_was_granted_for() {
 
     assert_eq!(run.status.code(), Some(0), "stderr: {}", stderr(&run));
     assert!(
-        stdout(&run).contains("repos/alpha (waived: uncommitted)"),
+        stdout(&run).contains("repos/alpha (branch kept, waived: uncommitted)"),
         "got:\n{}",
         stdout(&run)
     );
@@ -210,7 +210,7 @@ fn rm_takes_the_member_named_and_leaves_the_plane_standing() {
             concat!(
                 "auth-work  {planes}/auth-work\n",
                 "\n",
-                "  {alpha}  feat-login  removed  repos/alpha\n",
+                "  {alpha}  feat-login  removed  repos/alpha (branch kept)\n",
             ),
             planes = host.planes_as_resolved().display(),
             alpha = alpha.display(),

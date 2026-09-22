@@ -32,6 +32,8 @@ use crate::refusal::Reason;
 pub enum Request {
     /// Make a plane, and a worktree of every member named.
     PlaneCreate(PlaneCreateRequest),
+    /// Put members into a plane that already exists.
+    PlaneAdd(PlaneAddRequest),
     /// Every plane on this host.
     PlaneList(PlaneListRequest),
     /// One plane, in detail.
@@ -56,6 +58,7 @@ pub enum Request {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Response {
     PlaneCreate(PlaneCreated),
+    PlaneAdd(PlaneAdded),
     PlaneList(PlaneList),
     PlaneShow(PlaneView),
     PlaneStatus(PlaneStatus),
@@ -77,9 +80,10 @@ impl Response {
             // Neither a teardown nor a build reports drift: both say what they
             // did in their rows, and a failure is an envelope rather than an
             // exit code to look up.
-            Response::PlaneCreate(_) | Response::PlaneDestroy(_) | Response::PlaneRemove(_) => {
-                false
-            }
+            Response::PlaneCreate(_)
+            | Response::PlaneAdd(_)
+            | Response::PlaneDestroy(_)
+            | Response::PlaneRemove(_) => false,
             Response::PlaneList(list) => {
                 list.planes.iter().any(|plane| plane.health.has_findings())
             }
@@ -111,6 +115,34 @@ pub struct PlaneCreateRequest {
     /// The plane id. `None` generates one.
     pub id: Option<String>,
     pub intent: BranchIntent,
+    /// Whether to bring every **owned** project named up to date first, so the
+    /// branch resolves against what the forge actually has.
+    ///
+    /// A field on the request rather than a behaviour inside [`BranchIntent`],
+    /// so the intent stays a pure statement of intent and `Resolve` with
+    /// `fetch: false` can be refused at request validation (ADR-0007).
+    pub fetch: bool,
+}
+
+/// Put members into a plane that already exists.
+///
+/// `add` cannot abort-and-remove the way `create` does — the plane holds other
+/// members full of work — so a failure force-removes only the worktrees **it**
+/// created and drops only **its own** entries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaneAddRequest {
+    pub plane: PlaneRef,
+    /// One or more members, as written: `@name`, or a path, each optionally
+    /// carrying `:branch`.
+    pub members: Vec<String>,
+    /// The branch for every member that does not carry its own.
+    ///
+    /// **Mandatory, from here or from a suffix.** Nothing is derived from what
+    /// the plane's existing members happen to be on: that would make `add`
+    /// depend on unrelated work in another worktree.
+    pub branch: Option<String>,
+    pub intent: BranchIntent,
+    pub fetch: bool,
 }
 
 /// Whether the branch asked for must exist, must not, or either.
@@ -145,6 +177,28 @@ pub struct PlaneCreated {
     /// interrupted run can answer `Ok` with this set — a failed one says the
     /// same thing through `CreateAborted`'s own `remnant`, and a plane that was
     /// built has nothing to leave behind.
+    pub remnant: bool,
+}
+
+/// Members that were put into a plane that already existed.
+///
+/// There is no `remnant` and no latch: `add` never writes the incomplete
+/// marker, under any failure. The latch means *this plane was never completed,
+/// nothing in it is yours*, and a plane full of real work flagged as free to
+/// discard would be a trapdoor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaneAdded {
+    /// The **directory's name**, which is the plane's identity — a string for
+    /// the same reason [`PlaneView`]'s is.
+    pub id: String,
+    pub directory: PathBuf,
+    /// One row per member **named**, in the order they were named.
+    pub members: Vec<PerMember<CreatedMember>>,
+    pub interrupted: bool,
+    /// Whether the unwind could not take this run's members back, so the plane
+    /// is **not** as it was found and lists a member with no worktree. Only an
+    /// interrupted run can answer `Ok` with this set — a failed one says the
+    /// same thing through `AddAborted`'s own `remnant`.
     pub remnant: bool,
 }
 
@@ -461,18 +515,44 @@ pub struct RemovedMember {
     pub branch: Option<String>,
     /// Where the worktree was, relative to the plane directory.
     pub path: WorktreePath,
-    /// Whether the branch went with it. Never for a repo bitplane does not
-    /// own — which, with ad-hoc members only, is every member today (ADR-0006).
-    pub branch_deleted: bool,
+    /// What became of that branch.
+    pub disposition: BranchDisposition,
     /// The reasons that were raised for this member and waived, so a forced
     /// destruction is visible in a transcript.
     pub waived: Vec<Reason>,
+}
+
+/// What a teardown did with the branch a worktree was on.
+///
+/// Three answers rather than a boolean, because *bitplane deleted your branch*
+/// and *bitplane left your branch alone because it owns nothing in that repo*
+/// are different pieces of news and a user reading a row needs both (ADR-0006).
+///
+/// Deliberately **not** `#[non_exhaustive]`, for the same reason [`MemberWork`]
+/// is not: every surface renders it, so a state added here and forgotten at a
+/// rendering has to fail to compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BranchDisposition {
+    /// Deleted with the worktree. Only ever an **owned** project's branch: for
+    /// a bitplane-owned source repo `refs/heads/*` holds exactly the branches
+    /// plane members were created on, so the branch is the plane's to delete.
+    Deleted,
+    /// Left alone. bitplane never deletes a ref in an **adopted** project's
+    /// checkout or an **ad-hoc member**'s repo — it cannot tell a branch it
+    /// created from one the user has had for two years, and it owns nothing
+    /// there.
+    Kept,
+    /// There was no branch to speak of: the worktree was detached, or git
+    /// could not be asked.
+    None,
 }
 
 /// Runs one request against one engine.
 pub fn dispatch<E: Engine + ?Sized>(engine: &E, request: Request) -> Result<Response, EngineError> {
     match request {
         Request::PlaneCreate(request) => engine.plane_create(request).map(Response::PlaneCreate),
+        Request::PlaneAdd(request) => engine.plane_add(request).map(Response::PlaneAdd),
         Request::PlaneList(request) => engine.plane_list(request).map(Response::PlaneList),
         Request::PlaneShow(request) => engine.plane_show(request).map(Response::PlaneShow),
         Request::PlaneStatus(request) => engine.plane_status(request).map(Response::PlaneStatus),
@@ -495,6 +575,7 @@ mod tests {
             branch: Some("feat-login".to_owned()),
             id: Some("auth-work".to_owned()),
             intent: BranchIntent::RequireNew,
+            fetch: true,
         });
 
         let json = serde_json::to_string(&request).unwrap();

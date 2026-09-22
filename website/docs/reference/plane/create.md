@@ -6,14 +6,12 @@ title: bp create
 
 :::in-progress
 
-Ad-hoc members are built end to end: the claim, the latch, `plane.toml`,
-the abort window, branch intent, generated and chosen ids, the unwind and
-Ctrl-C all behave as described. Two parts are not there yet:
+Registered projects and ad-hoc members are both built end to end: the
+claim, the latch, `plane.toml`, the abort window, the fetch, branch intent,
+generated and chosen ids, the unwind and Ctrl-C all behave as described.
+One part is not there yet:
 
-- **`@project` members are refused.** Projects can be registered, but a
-  plane cannot hold one yet, so every member must be a path.
-- **`--no-fetch` and `--no-scripts` are not accepted.** Nothing is fetched
-  before the worktrees are built, and no `post_worktree_create` script
+- **`--no-scripts` is not accepted.** No `post_worktree_create` script
   runs, so there is nothing to switch off.
 
 :::
@@ -66,6 +64,12 @@ With neither `--new-branch` nor `--existing-branch`, `bp` **resolves**: it
 checks the branch out if it exists after the fetch and creates it otherwise, and
 the output says which happened. That is the right default and it is why the
 fetch matters.
+
+**Exists means resolves**, from either namespace. For an owned project
+`refs/heads/*` holds only the branches plane members were created on, so a
+colleague's branch is never there — it is at `refs/remotes/origin/<branch>`, and
+a worktree cut from it tracks it. That is *joining*, so the row is not marked as
+a new branch.
 
 `--no-fetch` with the default intent is
 [refused at validation](../refusals-and-waivers.md#branch_intent_requires_fetch),
@@ -155,11 +159,15 @@ $ bp create @api @web @docs -b feat-login
 ```
 error[create_aborted]: create did not finish; bp-a3f9c2e1 was removed
 
-  @web   failed: could not fetch origin: Connection refused
+  @web   failed: git worktree add exited 128: fatal: invalid reference: feat-login
   @docs  skipped: aborted after an earlier failure
 
 remedy: Nothing was left behind. Fix what the rows report, then run bp create again.
 ```
+
+A forge that will not answer never gets this far: the fetch runs **before** the
+claim, so it fails as [`fetch_failed`](../refusals-and-waivers.md#typed-failures)
+with no plane directory to clear up.
 
 `@api` succeeded and is not in `problems`; it was unwound with the rest. The
 unwind passes git's force flag unconditionally, which is safe **only** here: by

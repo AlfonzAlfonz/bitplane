@@ -17,10 +17,10 @@
 
 use bitplane_core::member::PROJECT_SIGIL;
 use bitplane_core::{
-    CreatedMember, ErrorEnvelope, Fetched, Finding, Head, MemberView, MemberWork, Outcome,
-    PerMember, PerProject, PlaneCreated, PlaneDestroyed, PlaneHealth, PlaneList, PlaneRemoved,
-    PlaneStatus, PlaneView, Problem, ProjectAdded, ProjectFetched, ProjectListing, ProjectSummary,
-    RemovedMember, Response,
+    BranchDisposition, CreatedMember, ErrorEnvelope, Fetched, Finding, Head, MemberView,
+    MemberWork, Outcome, PerMember, PerProject, PlaneAdded, PlaneCreated, PlaneDestroyed,
+    PlaneHealth, PlaneList, PlaneRemoved, PlaneStatus, PlaneView, Problem, ProjectAdded,
+    ProjectFetched, ProjectListing, ProjectSummary, RemovedMember, Response,
 };
 
 /// Whether output is for a person or a program.
@@ -41,6 +41,7 @@ pub fn response(response: &Response, rendering: Rendering) -> String {
         }
         Rendering::Human => match response {
             Response::PlaneCreate(created) => plane(created),
+            Response::PlaneAdd(added) => added_members(added),
             Response::PlaneList(list) => listing(list),
             Response::PlaneShow(plane) => detail(plane),
             Response::PlaneStatus(status) => fan_out(status),
@@ -78,6 +79,30 @@ fn plane(created: &PlaneCreated) -> String {
         text.push_str(&format!(
             "\n{} could not be fully removed; run bp destroy -p {} to clear the remnant.\n",
             created.id, created.id
+        ));
+    }
+
+    text
+}
+
+/// The members that arrived, under the plane they arrived in — which is still
+/// there either way, so there is no remnant line to print.
+fn added_members(added: &PlaneAdded) -> String {
+    let rows: Vec<Vec<String>> = added.members.iter().map(member_row).collect();
+
+    let mut text = format!(
+        "{}  {}\n\n{}",
+        added.id,
+        added.directory.display(),
+        columns(&rows, INDENT)
+    );
+
+    // An interrupt whose unwind could not finish has left a member listed with
+    // no worktree, and the rows alone do not say so.
+    if added.remnant {
+        text.push_str(&format!(
+            "\n{} still lists members with no worktree; run bp rm to clear them.\n",
+            added.id
         ));
     }
 
@@ -148,8 +173,13 @@ fn removed_row(row: &PerMember<RemovedMember>) -> Vec<String> {
 fn removal_notes(member: &RemovedMember) -> String {
     let mut notes: Vec<String> = Vec::new();
 
-    if member.branch_deleted {
-        notes.push("branch deleted".to_owned());
+    match member.disposition {
+        BranchDisposition::Deleted => notes.push("branch deleted".to_owned()),
+        // Said rather than left to silence: *bitplane owns no ref in that repo*
+        // is news, and a user who has just torn a plane down wants to know
+        // their branch survived it (ADR-0006).
+        BranchDisposition::Kept => notes.push("branch kept".to_owned()),
+        BranchDisposition::None => {}
     }
     if !member.waived.is_empty() {
         notes.push(format!(
@@ -1020,6 +1050,52 @@ mod tests {
     }
 
     #[test]
+    fn an_added_member_prints_under_the_plane_it_joined_and_says_nothing_about_the_plane() {
+        let rendered = response(&Response::PlaneAdd(added(false)), Rendering::Human);
+
+        assert_eq!(
+            rendered,
+            concat!(
+                "bp-7c1e0d44  /Users/alfonz/planes/bp-7c1e0d44\n",
+                "\n",
+                "  @api  feat-login  created  acme/api\n",
+            )
+        );
+    }
+
+    #[test]
+    fn an_unwind_that_could_not_finish_says_the_plane_is_not_as_it_was() {
+        // Only an interrupted `add` answers `Ok` with this set; a failed one
+        // says the same thing through `add_aborted`'s own remnant.
+        let rendered = response(&Response::PlaneAdd(added(true)), Rendering::Human);
+
+        assert!(
+            rendered.ends_with(
+                "bp-7c1e0d44 still lists members with no worktree; run bp rm to clear them.\n"
+            ),
+            "got:\n{rendered}"
+        );
+    }
+
+    fn added(remnant: bool) -> PlaneAdded {
+        PlaneAdded {
+            id: "bp-7c1e0d44".to_owned(),
+            directory: PathBuf::from("/Users/alfonz/planes/bp-7c1e0d44"),
+            members: vec![PerMember::ok(
+                MemberRef::parse("@api").unwrap(),
+                CreatedMember {
+                    branch: "feat-login".to_owned(),
+                    created_branch: false,
+                    path: WorktreePath::parse("acme/api").unwrap(),
+                    unwound: false,
+                },
+            )],
+            interrupted: remnant,
+            remnant,
+        }
+    }
+
+    #[test]
     fn a_destroyed_plane_prints_its_rows_and_then_says_it_is_gone() {
         let rendered = response(&Response::PlaneDestroy(destroyed()), Rendering::Human);
 
@@ -1028,7 +1104,7 @@ mod tests {
             concat!(
                 "bp-7c1e0d44  /Users/alfonz/planes/bp-7c1e0d44\n",
                 "\n",
-                "  @api   feat-login  removed       acme/api\n",
+                "  @api   feat-login  removed       acme/api (branch deleted)\n",
                 "  @docs  -           already gone  -\n",
                 "\n",
                 "destroyed bp-7c1e0d44\n",
@@ -1050,7 +1126,7 @@ mod tests {
         let rendered = response(&Response::PlaneDestroy(plane), Rendering::Human);
 
         assert!(
-            rendered.contains("acme/api (waived: uncommitted, untracked)"),
+            rendered.contains("acme/api (branch deleted, waived: uncommitted, untracked)"),
             "a forced destruction has to be visible in a transcript:\n{rendered}"
         );
     }
@@ -1104,8 +1180,32 @@ mod tests {
             concat!(
                 "bp-7c1e0d44  /Users/alfonz/planes/bp-7c1e0d44\n",
                 "\n",
-                "  @api  feat-login  removed  acme/api\n",
+                "  @api  feat-login  removed  acme/api (branch deleted)\n",
             )
+        );
+    }
+
+    #[test]
+    fn a_member_whose_branch_bitplane_does_not_own_is_told_its_branch_survived() {
+        let rendered = response(
+            &Response::PlaneRemove(PlaneRemoved {
+                id: "bp-7c1e0d44".to_owned(),
+                directory: PathBuf::from("/Users/alfonz/planes/bp-7c1e0d44"),
+                members: vec![PerMember::ok(
+                    MemberRef::parse("/Users/alfonz/projects/bitplane").unwrap(),
+                    RemovedMember {
+                        disposition: BranchDisposition::Kept,
+                        ..removed_member()
+                    },
+                )],
+                interrupted: false,
+            }),
+            Rendering::Human,
+        );
+
+        assert!(
+            rendered.contains("acme/api (branch kept)"),
+            "bitplane owns no ref in a repo it merely pointed at:\n{rendered}"
         );
     }
 
@@ -1126,7 +1226,7 @@ mod tests {
         RemovedMember {
             branch: Some("feat-login".to_owned()),
             path: WorktreePath::parse("acme/api").unwrap(),
-            branch_deleted: false,
+            disposition: BranchDisposition::Deleted,
             waived: Vec::new(),
         }
     }

@@ -108,6 +108,13 @@ The question that matters is *is this work recoverable*, and containment in any
 make the check more conservative — a false refusal you waive — never more
 permissive.
 
+`unpushed` is asked of the worktree's `HEAD` while the worktree is there. Where
+its directory has been deleted but the member is an **owned** project, it is
+asked of the branch itself instead — the commits are the branch's, and the
+branch is about to go with the member. For an adopted project or an ad-hoc
+member nothing is deleted, so a directory you removed by hand puts no commits
+out of reach and there is nothing to refuse over.
+
 `source_repo_missing` is different in kind from the other four. They mean *I
 know there is work here and I accept losing it*; this one means *I cannot check
 at all*. Folding it into `uncommitted` would let a waiver granted for a diff you
@@ -308,6 +315,11 @@ intent creates a branch when it does not resolve, so
 silently create a **new, unrelated** branch of that name — and you would find
 out at push time, having already committed.
 
+The remedy names the branch the request would have cut, taken from `-b` or from
+the first `:branch` suffix. It names **both** ways out because both are real
+answers: fetch, and get the branch that exists; or say `--new-branch`, and mean
+the new one.
+
 ## Typed failures
 
 Exit code `1`. The operation ran and did not succeed.
@@ -317,6 +329,7 @@ Exit code `1`. The operation ran and did not succeed.
 | `create_aborted` | `create did not finish; bp-a3f9c2e1 was removed` | `Nothing was left behind. Fix what the rows report, then run bp create again.` |
 | `create_aborted` | `create did not finish and bp-a3f9c2e1 could not be fully removed` | `Run` `bp destroy -p bp-a3f9c2e1` `to clear the remnant.` |
 | `add_aborted` | `add did not finish; bp-a3f9c2e1 is unchanged` | `Fix what the rows report, then run bp add again.` |
+| `add_aborted` | `add did not finish and bp-a3f9c2e1 could not be returned to its prior state` | `Run` `bp show -p bp-a3f9c2e1` `to see which members have no worktree, then` `bp rm` `them.` |
 | `project_add_aborted` | `@codestyle was not registered` | `The objects fetched so far were kept at ~/.local/share/bitplane/projects/codestyle/repo.git; re-running bp project add will reuse them.` |
 | `script_failed` | `install exited 1 in @api; the worktree was created` | `See the log, fix the cause, then run bp run @api install.` |
 | `script_failed` | `install exited 1 in @api` | `See the log, fix the cause, then run bp run @api install.` |

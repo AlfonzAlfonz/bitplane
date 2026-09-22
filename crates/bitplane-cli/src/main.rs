@@ -13,9 +13,10 @@ use std::path::PathBuf;
 
 use bitplane_core::{
     BranchIntent, Directories, DirectoryOverrides, EngineError, ErrorEnvelope, HealthCheck,
-    Interrupt, LocalEngine, PlaneCreateRequest, PlaneDestroyRequest, PlaneListRequest, PlaneRef,
-    PlaneRemoveRequest, PlaneShowRequest, PlaneStatusRequest, ProjectAddRequest,
-    ProjectFetchRequest, Reason, Request, Response, SystemEnvironment, Termination, dispatch,
+    Interrupt, LocalEngine, PlaneAddRequest, PlaneCreateRequest, PlaneDestroyRequest,
+    PlaneListRequest, PlaneRef, PlaneRemoveRequest, PlaneShowRequest, PlaneStatusRequest,
+    ProjectAddRequest, ProjectFetchRequest, Reason, Request, Response, SystemEnvironment,
+    Termination, dispatch,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use render::Rendering;
@@ -66,6 +67,8 @@ struct GlobalFlags {
 enum Command {
     /// Create a plane and the worktrees of every member named.
     Create(CreateArgs),
+    /// Put members into a plane that already exists.
+    Add(AddArgs),
     /// List every plane, with its members, their live branches and its health.
     List(ListArgs),
     /// Describe one plane: its members, where they are, and any finding.
@@ -131,6 +134,19 @@ struct CreateArgs {
     #[arg(long, value_name = "id")]
     id: Option<String>,
 
+    #[command(flatten)]
+    intent: BranchIntentArgs,
+
+    #[command(flatten)]
+    fetch: FetchArg,
+}
+
+/// Whether the branch asked for must exist, must not, or either.
+///
+/// Neither flag is the default — **resolve**: check the branch out if it is
+/// there after the fetch, and create it otherwise.
+#[derive(Debug, Args)]
+struct BranchIntentArgs {
     /// The branch must not already exist.
     #[arg(long, conflicts_with = "existing_branch")]
     new_branch: bool,
@@ -138,6 +154,52 @@ struct CreateArgs {
     /// The branch must already exist.
     #[arg(long)]
     existing_branch: bool,
+}
+
+/// The fetch every owned project gets before its branch is resolved.
+///
+/// Switching it off is only honest alongside an explicit branch intent:
+/// resolving against a source repo nobody has updated is how a colleague's
+/// branch name silently becomes a new, unrelated branch of your own.
+#[derive(Debug, Args)]
+struct FetchArg {
+    /// Do not fetch the owned projects named before building their worktrees.
+    #[arg(long)]
+    no_fetch: bool,
+}
+
+impl From<BranchIntentArgs> for BranchIntent {
+    fn from(args: BranchIntentArgs) -> BranchIntent {
+        match (args.new_branch, args.existing_branch) {
+            (true, _) => BranchIntent::RequireNew,
+            (_, true) => BranchIntent::RequireExisting,
+            _ => BranchIntent::Resolve,
+        }
+    }
+}
+
+/// Where `create` makes a plane, `add` writes into one somebody is already
+/// working in — so there is no `--id`, and the plane is named the way every
+/// other in-plane verb names one.
+#[derive(Debug, Args)]
+struct AddArgs {
+    /// The members: `@name` for a project, a path for an ad-hoc member. Each
+    /// may carry a `:branch` suffix.
+    #[arg(required = true, value_name = "member")]
+    members: Vec<String>,
+
+    #[command(flatten)]
+    plane: PlaneArgs,
+
+    /// The branch for every member that does not carry its own.
+    #[arg(short, long, value_name = "branch")]
+    branch: Option<String>,
+
+    #[command(flatten)]
+    intent: BranchIntentArgs,
+
+    #[command(flatten)]
+    fetch: FetchArg,
 }
 
 #[derive(Debug, Args)]
@@ -336,6 +398,7 @@ fn answer(command: Command, global: &GlobalFlags) -> Result<Response, EngineErro
 fn termination_for(response: &Response) -> Termination {
     match response {
         Response::PlaneCreate(created) if created.interrupted => Termination::Interrupted,
+        Response::PlaneAdd(added) if added.interrupted => Termination::Interrupted,
         Response::PlaneDestroy(destroyed) if destroyed.interrupted => Termination::Interrupted,
         Response::PlaneRemove(removed) if removed.interrupted => Termination::Interrupted,
         Response::ProjectFetch(fetched) if fetched.interrupted => Termination::Interrupted,
@@ -433,11 +496,15 @@ fn request_for(command: Command) -> Request {
             members: args.members,
             branch: args.branch,
             id: args.id,
-            intent: match (args.new_branch, args.existing_branch) {
-                (true, _) => BranchIntent::RequireNew,
-                (_, true) => BranchIntent::RequireExisting,
-                _ => BranchIntent::Resolve,
-            },
+            intent: args.intent.into(),
+            fetch: !args.fetch.no_fetch,
+        }),
+        Command::Add(args) => Request::PlaneAdd(PlaneAddRequest {
+            plane: plane_ref(args.plane),
+            members: args.members,
+            branch: args.branch,
+            intent: args.intent.into(),
+            fetch: !args.fetch.no_fetch,
         }),
     }
 }
