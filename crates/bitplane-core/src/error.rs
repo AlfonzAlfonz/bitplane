@@ -453,13 +453,17 @@ impl EngineError {
     fn remedy(&self) -> Option<String> {
         match self {
             EngineError::GitMissing => Some(format!(
-                "Install git {MINIMUM_GIT_VERSION} or newer and put it on PATH."
+                "Install git {} or newer and put it on PATH.",
+                MINIMUM_GIT_VERSION.spoken()
             )),
-            EngineError::GitUnusable { .. } | EngineError::GitVersionUnreadable { .. } => Some(
-                format!("Check that `git --version` reports git {MINIMUM_GIT_VERSION} or newer."),
-            ),
+            EngineError::GitUnusable { .. } | EngineError::GitVersionUnreadable { .. } => {
+                Some(format!(
+                    "Check that `git --version` reports git {} or newer.",
+                    MINIMUM_GIT_VERSION.spoken()
+                ))
+            }
             EngineError::GitTooOld { required, .. } => {
-                Some(format!("Upgrade git to {required} or newer."))
+                Some(format!("Upgrade git to {} or newer.", required.spoken()))
             }
             EngineError::LockTimeout { .. } => {
                 Some("Another bitplane process holds it; retry once that one finishes.".to_owned())
@@ -631,20 +635,24 @@ impl fmt::Display for EngineError {
         match self {
             EngineError::GitMissing => write!(
                 f,
-                "git was not found on PATH; bitplane requires git {MINIMUM_GIT_VERSION} or newer"
+                "git was not found on PATH; bitplane requires git {} or newer",
+                MINIMUM_GIT_VERSION.spoken()
             ),
             EngineError::GitUnusable { message } => write!(
                 f,
-                "git could not be run ({message}); bitplane requires git {MINIMUM_GIT_VERSION} or newer"
+                "git could not be run ({message}); bitplane requires git {} or newer",
+                MINIMUM_GIT_VERSION.spoken()
             ),
             EngineError::GitVersionUnreadable { reported } => write!(
                 f,
-                "git's version could not be read from {reported:?}; bitplane requires git {MINIMUM_GIT_VERSION} or newer"
+                "git's version could not be read from {reported:?}; bitplane requires git {} or newer",
+                MINIMUM_GIT_VERSION.spoken()
             ),
             EngineError::GitTooOld { found, required } => {
                 write!(
                     f,
-                    "git {found} is too old; bitplane requires git {required} or newer"
+                    "git {found} is too old; bitplane requires git {} or newer",
+                    required.spoken()
                 )
             }
             EngineError::InvalidRequest { message } => write!(f, "{message}"),

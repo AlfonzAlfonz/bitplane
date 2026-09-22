@@ -47,16 +47,16 @@ the file and the error, and the scan continues.
 $ bp project list
 ```
 ```
-@api        owned    git@gitlab.com:acme/api.git
-@codestyle  owned    git@gitlab.com:acme/codestyle.git
-@bitplane   adopted  /Users/alfonz/projects/bitplane
+  @api        owned    git@gitlab.com:acme/api.git
+  @bitplane   adopted  /Users/alfonz/projects/bitplane
+  @codestyle  owned    git@gitlab.com:acme/codestyle.git
 ```
 
 Whether an owned project's source repo is actually present locally is answered
 by a `stat`, never by a stored field:
 
 ```
-@api        owned    git@gitlab.com:acme/api.git         repo.git missing
+  @api        owned    git@gitlab.com:acme/api.git         repo.git missing
 ```
 
 ## Examples
@@ -74,9 +74,9 @@ Exit `3`.
 $ bp project list
 ```
 ```
-@api        owned    git@gitlab.com:acme/api.git
-@codestyle  project.toml: unknown key "default_branch" at line 3
-@bitplane   adopted  /Users/alfonz/projects/bitplane
+  @api        owned    git@gitlab.com:acme/api.git
+  @bitplane   adopted  /Users/alfonz/projects/bitplane
+  @codestyle  ~/.local/share/bitplane/projects/codestyle/project.toml: unknown key "default_branch"
 ```
 
 Nothing is auto-repaired: a file `bp` cannot read is a file it has no business

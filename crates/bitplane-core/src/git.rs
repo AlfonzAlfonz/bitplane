@@ -170,6 +170,22 @@ impl<P: GitProbe> GitPrerequisite<P> {
     }
 }
 
+impl GitVersion {
+    /// How a message names this version.
+    ///
+    /// A zero patch is noise: git itself, ADR-0001 and every page of the
+    /// reference call the floor **2.36**, so printing `2.36.0` at a user would
+    /// be bitplane spelling the requirement differently from the document that
+    /// states it. [`fmt::Display`] keeps all three components, because that is
+    /// also the wire form.
+    pub fn spoken(&self) -> String {
+        match self.patch {
+            0 => format!("{}.{}", self.major, self.minor),
+            patch => format!("{}.{}.{patch}", self.major, self.minor),
+        }
+    }
+}
+
 impl fmt::Display for GitVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)

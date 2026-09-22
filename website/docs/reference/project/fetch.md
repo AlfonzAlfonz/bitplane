@@ -65,8 +65,8 @@ $ bp project fetch
 ```
 ```
   @api        fetched   3 refs updated
-  @codestyle  fetched   up to date
   @bitplane   -         nothing to fetch (adopted)
+  @codestyle  fetched   up to date
 ```
 
 ## Examples
@@ -92,8 +92,8 @@ $ bp project fetch
 ```
 ```
   @api        failed: could not fetch origin: Connection refused
-  @codestyle  fetched   up to date
   @bitplane   -         nothing to fetch (adopted)
+  @codestyle  fetched   up to date
 ```
 ```
 error[fetch_failed]: 1 of 2 fetchable projects could not be fetched

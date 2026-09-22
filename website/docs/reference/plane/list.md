@@ -6,9 +6,7 @@ title: bp list
 
 :::implemented
 
-Everything on this page works as described. A plane can only hold [ad-hoc
-members](../member-syntax.md#paths) today, so the `@project` rows in the
-examples below cannot occur yet — see [`bp create`](./create.md).
+Everything on this page works as described.
 
 :::
 
@@ -115,7 +113,7 @@ bp-7c1e0d44  ~/planes/bp-7c1e0d44  created 2026-09-21
   create never completed, started 3 days ago
 
 broken.plane  ~/planes/broken.plane
-  plane.toml: unknown key "status" at line 4
+  ~/planes/broken.plane/plane.toml: unknown key "status"
 ```
 
 `create never completed` is the [latch](./create.md#what-it-writes), and it says

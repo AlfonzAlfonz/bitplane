@@ -87,7 +87,7 @@ suffix the request is
 
 A path whose **last segment contains a colon** cannot carry a branch suffix,
 because the split cannot tell the two apart. `bp` refuses it rather than
-guessing:
+guessing. Exit `2`:
 
 ```
 $ bp create ~/projects/weird:name -b feat-x
@@ -95,7 +95,7 @@ $ bp create ~/projects/weird:name -b feat-x
 ```
 error[member_path_ambiguous]: ~/projects/weird:name could be a path or a member with a branch suffix
 
-remedy: Register it with `bp project adopt` and use its @name instead.
+remedy: Register it with bp project adopt and use its @name instead.
 ```
 
 `bp project adopt` takes a path and no branch, so it has no such ambiguity;

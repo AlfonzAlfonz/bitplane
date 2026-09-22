@@ -116,7 +116,7 @@ $ bp destroy -p auth-work
 ```
 auth-work  ~/planes/auth-work
 
-  @api  feat-login  removed  acme/api
+  @api  feat-login  removed  acme/api (branch deleted)
 
 destroyed auth-work (create had never completed)
 ```

@@ -159,11 +159,15 @@ $ bp create @api @web @docs -b feat-login
 ```
 error[create_aborted]: create did not finish; bp-a3f9c2e1 was removed
 
-  @web   failed: git worktree add exited 128: fatal: invalid reference: feat-login
-  @docs  skipped: aborted after an earlier failure
+  @web  failed: git worktree add exited 128: fatal: invalid reference: feat-login
 
 remedy: Nothing was left behind. Fix what the rows report, then run bp create again.
 ```
+
+A member that had **not been picked up yet** when the failure landed rides in
+the same error as `skipped: aborted after an earlier failure`. Up to four
+worktrees are added at once, so a plane this small has every member in flight
+before the first one can fail and there is nothing left to skip.
 
 A forge that will not answer never gets this far: the fetch runs **before** the
 claim, so it fails as [`fetch_failed`](../refusals-and-waivers.md#typed-failures)

@@ -6,9 +6,7 @@ title: bp status
 
 :::implemented
 
-Everything on this page works as described. A plane can only hold [ad-hoc
-members](../member-syntax.md#paths) today, so the `@project` rows in the
-examples below cannot occur yet — see [`bp create`](./create.md).
+Everything on this page works as described.
 
 :::
 

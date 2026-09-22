@@ -81,7 +81,7 @@ $ bp add @api:feat-other
 ```
 error[duplicate_member]: @api is already a member of bp-a3f9c2e1
 
-remedy: Run bp rm @api, then bp add @api:feat-other.
+remedy: Run bp rm @api, then bp add @api:<branch>.
 ```
 
 Two commands, deliberately. It is the same strictness `create` has, and it makes

@@ -1,0 +1,44 @@
+# Builds and tests the workspace on every pull request.
+#
+# The reference snapshot suite runs here, which is what makes a disagreement
+# between `website/docs/reference/` and the binary a failing check rather than
+# something a reader finds later. That is why this workflow has no `paths`
+# filter: a change to a page with no change to any code can break it.
+
+name: rust
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The snapshot suite builds real worktrees, so the runner's git is part
+      # of what is under test. Recorded rather than assumed: bitplane requires
+      # 2.36 or newer and says so at exit 4.
+      - run: git --version
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all -- --check
+
+      - run: cargo clippy --all-targets -- --deny warnings
+
+      - run: cargo test --workspace

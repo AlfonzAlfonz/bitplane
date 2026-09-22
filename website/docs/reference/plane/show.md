@@ -6,9 +6,7 @@ title: bp show
 
 :::implemented
 
-Everything on this page works as described. A plane can only hold [ad-hoc
-members](../member-syntax.md#paths) today, so the `@project` rows in the
-examples below cannot occur yet — see [`bp create`](./create.md).
+Everything on this page works as described.
 
 :::
 
@@ -128,13 +126,16 @@ $ bp show -p auth-work
 ```
 auth-work
   directory  ~/planes/auth-work
+  created    2026-09-18 09:41
   members    2
   health     broken
 
+  @api  feat-login  acme/api
+  @web  feat-login  acme/web
+
 findings
   plane.toml says bp-a3f9c2e1; this directory is auth-work
-  the plane was moved outside bp, or a rename was interrupted
-  bp repair reconnects the worktrees and settles the id
+  the plane was moved outside bp, or a rename was interrupted; bp repair reconnects the worktrees and settles the id
 ```
 
 ## Exit codes
