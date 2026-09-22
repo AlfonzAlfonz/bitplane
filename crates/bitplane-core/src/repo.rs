@@ -248,6 +248,41 @@ impl Git {
         self.run(repo, &["worktree", "prune"]).map(drop)
     }
 
+    /// What `git status` says about the worktree at `at`: how many tracked
+    /// files have changes, and how many files git does not know about.
+    ///
+    /// This is the one read that makes git write — `git status` refreshes the
+    /// per-worktree index, so it can touch `index.lock`. That lock is
+    /// per-worktree and never shared, and bitplane stores nothing either way:
+    /// "a read never writes" is about bitplane's own state (ADR-0003).
+    pub fn working_tree_changes(&self, at: &Path) -> Result<(usize, usize), EngineError> {
+        let listing = self.run(at, &["status", "--porcelain", "-z"])?;
+
+        Ok(count_changes(&listing))
+    }
+
+    /// How many commits on the worktree's `HEAD` are contained in no
+    /// `refs/remotes/origin/*`.
+    ///
+    /// Deliberately **not** `git branch -d`'s check, which compares against the
+    /// branch's upstream — for a plane branch that is `origin/main`, so `-d`
+    /// falsely reports a branch already safe on the forge as unmerged
+    /// (ADR-0006). No fetch is performed: a stale tracking ref can only make
+    /// this too large, never too small.
+    pub fn commits_not_on_origin(&self, at: &Path) -> Result<usize, EngineError> {
+        let counted = self.run(
+            at,
+            &["rev-list", "--count", "HEAD", "--not", "--remotes=origin"],
+        )?;
+
+        counted.trim().parse().map_err(|_| EngineError::GitFailed {
+            message: format!(
+                "git rev-list printed {:?}, which is not a count",
+                counted.trim()
+            ),
+        })
+    }
+
     /// `git branch -D`.
     ///
     /// Only ever called on a branch **this run cut**, in the abort window,
@@ -347,6 +382,39 @@ fn parse_worktree_listing(listing: &str) -> Vec<WorktreeEntry> {
     }
 
     entries
+}
+
+/// Reads `git status --porcelain -z` as `(modified, untracked)`.
+///
+/// NUL-terminated for the same reason every listing here is: it is the only
+/// form that does not mangle a path containing a newline. A record is
+/// `XY <path>`, and a rename or a copy is followed by a **second** record
+/// holding the path it came from — which has to be consumed rather than counted
+/// as a change of its own.
+fn count_changes(listing: &str) -> (usize, usize) {
+    let mut modified = 0;
+    let mut untracked = 0;
+    let mut records = listing.split('\0');
+
+    while let Some(record) = records.next() {
+        let Some(code) = record.get(..2) else {
+            continue;
+        };
+
+        match code {
+            "??" => untracked += 1,
+            // Ignored files are not reported without `--ignored`, and are not a
+            // change if they ever are.
+            "!!" => {}
+            _ => modified += 1,
+        }
+
+        if matches!(code.as_bytes()[0], b'R' | b'C') {
+            records.next();
+        }
+    }
+
+    (modified, untracked)
 }
 
 fn describe(args: &[&OsStr], output: &Output) -> String {
@@ -467,6 +535,34 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert!(entries[0].prunable, "a stale entry occupies nothing");
         assert_eq!(entries[0].branch.as_deref(), Some("feat"));
+    }
+
+    #[test]
+    fn a_status_listing_counts_tracked_changes_apart_from_untracked_files() {
+        let listing = " M src/main.rs\0M  Cargo.toml\0?? notes.md\0?? scratch/\0";
+
+        assert_eq!(count_changes(listing), (2, 2));
+    }
+
+    #[test]
+    fn a_rename_is_one_change_and_not_two() {
+        // `R  <to>\0<from>\0` — the second field is where the file came from,
+        // not another changed file.
+        let listing = "R  src/new.rs\0src/old.rs\0 M src/main.rs\0";
+
+        assert_eq!(count_changes(listing), (2, 0));
+    }
+
+    #[test]
+    fn a_clean_worktree_counts_nothing() {
+        assert_eq!(count_changes(""), (0, 0));
+    }
+
+    #[test]
+    fn a_path_containing_a_newline_is_still_one_change() {
+        let listing = " M src/od\nd.rs\0";
+
+        assert_eq!(count_changes(listing), (1, 0));
     }
 
     #[test]

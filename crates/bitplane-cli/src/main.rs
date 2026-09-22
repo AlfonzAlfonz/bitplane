@@ -12,10 +12,11 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use bitplane_core::{
-    BranchIntent, Directories, DirectoryOverrides, EngineError, ErrorEnvelope, Interrupt,
-    LocalEngine, PlaneCreateRequest, Request, Response, SystemEnvironment, Termination, dispatch,
+    BranchIntent, Directories, DirectoryOverrides, EngineError, ErrorEnvelope, HealthCheck,
+    Interrupt, LocalEngine, PlaneCreateRequest, PlaneListRequest, PlaneRef, PlaneShowRequest,
+    PlaneStatusRequest, Request, Response, SystemEnvironment, Termination, dispatch,
 };
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use render::Rendering;
 
 fn main() -> std::process::ExitCode {
@@ -64,6 +65,12 @@ struct GlobalFlags {
 enum Command {
     /// Create a plane and the worktrees of every member named.
     Create(CreateArgs),
+    /// List every plane, with its members, their live branches and its health.
+    List(ListArgs),
+    /// Describe one plane: its members, where they are, and any finding.
+    Show(ShowArgs),
+    /// Report git's own status across every member of a plane.
+    Status(StatusArgs),
 }
 
 #[derive(Debug, Args)]
@@ -88,6 +95,68 @@ struct CreateArgs {
     /// The branch must already exist.
     #[arg(long)]
     existing_branch: bool,
+}
+
+#[derive(Debug, Args)]
+struct ListArgs {
+    #[command(flatten)]
+    health: HealthArgs,
+}
+
+#[derive(Debug, Args)]
+struct ShowArgs {
+    #[command(flatten)]
+    plane: PlaneArgs,
+
+    #[command(flatten)]
+    health: HealthArgs,
+}
+
+#[derive(Debug, Args)]
+struct StatusArgs {
+    #[command(flatten)]
+    plane: PlaneArgs,
+}
+
+/// How a command that acts on an existing plane is aimed.
+///
+/// **A plane is never a positional argument.** Positional slots hold members,
+/// branches, script names and project names — things that vary per command — so
+/// a plane id can never end up in one by accident.
+#[derive(Debug, Args)]
+struct PlaneArgs {
+    /// The plane. Defaults to the one containing the current directory.
+    #[arg(short, long, value_name = "id")]
+    plane: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct HealthArgs {
+    /// How hard to look for findings.
+    #[arg(long, value_name = "level", default_value = "cheap")]
+    health: HealthLevel,
+}
+
+/// The cost tiers, as the command line spells them.
+///
+/// `cheap` is the default because a listing runs constantly and must not spawn
+/// a git per member; `full` is the opt-in that does (ADR-0003).
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "snake_case")]
+enum HealthLevel {
+    None,
+    Cheap,
+    Full,
+}
+
+impl From<HealthLevel> for HealthCheck {
+    fn from(level: HealthLevel) -> HealthCheck {
+        match level {
+            HealthLevel::None => HealthCheck::None,
+            HealthLevel::Cheap => HealthCheck::Cheap,
+            HealthLevel::Full => HealthCheck::Full,
+        }
+    }
 }
 
 /// What one invocation amounts to: what it wrote to each stream, and how it
@@ -174,11 +243,13 @@ fn answer(command: Command, global: &GlobalFlags) -> Result<Response, EngineErro
     dispatch(&engine, request_for(command))
 }
 
-/// A response that reported an interrupt still goes to stdout — those rows are
-/// the repair instruction — so only the exit code says what happened.
+/// A response that reported an interrupt or a finding still goes to stdout —
+/// those rows are the repair instruction — so only the exit code says what
+/// happened. Drift is a state bitplane reports, not an error.
 fn termination_for(response: &Response) -> Termination {
     match response {
         Response::PlaneCreate(created) if created.interrupted => Termination::Interrupted,
+        _ if response.has_findings() => Termination::Drift,
         _ => Termination::Ok,
     }
 }
@@ -233,6 +304,16 @@ fn no_command() -> ErrorEnvelope {
 /// `match` is what makes a forgotten wiring a compile error.
 fn request_for(command: Command) -> Request {
     match command {
+        Command::List(args) => Request::PlaneList(PlaneListRequest {
+            health: args.health.health.into(),
+        }),
+        Command::Show(args) => Request::PlaneShow(PlaneShowRequest {
+            plane: plane_ref(args.plane),
+            health: args.health.health.into(),
+        }),
+        Command::Status(args) => Request::PlaneStatus(PlaneStatusRequest {
+            plane: plane_ref(args.plane),
+        }),
         Command::Create(args) => Request::PlaneCreate(PlaneCreateRequest {
             members: args.members,
             branch: args.branch,
@@ -243,6 +324,25 @@ fn request_for(command: Command) -> Request {
                 _ => BranchIntent::Resolve,
             },
         }),
+    }
+}
+
+/// Which plane the command is about.
+///
+/// Without `--plane` it is the one containing the current directory — carried
+/// as a path so the **engine** walks it, which is what keeps the resolution
+/// executable against a remote host (ADR-0003).
+///
+/// `BITPLANE_PLANE_DIR` and `BITPLANE_PLANE_ID` are deliberately not consulted.
+/// bitplane writes them for scripts and never reads them back: a stale one
+/// inherited from an outer shell would report a plane you are not standing in,
+/// and a plane id is mutable, so it could name a different plane entirely.
+fn plane_ref(args: PlaneArgs) -> PlaneRef {
+    match args.plane {
+        Some(id) => PlaneRef::Id { id },
+        None => PlaneRef::ContainingPath {
+            path: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        },
     }
 }
 

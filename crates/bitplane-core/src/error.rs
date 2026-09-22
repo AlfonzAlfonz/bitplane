@@ -14,7 +14,7 @@ use crate::exit::ExitCode;
 use crate::git::{GitVersion, MINIMUM_GIT_VERSION};
 use crate::outcome::{Outcome, PerMember};
 use crate::plane_id::GENERATED_ID_PREFIX;
-use crate::wire::CreatedMember;
+use crate::wire::{CreatedMember, PlaneRef};
 
 /// What every bitplane failure looks like on the wire.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +97,10 @@ pub enum EngineError {
     },
     /// A name that is not a project on this host.
     ProjectNotFound { name: String },
+    /// Nothing at the ref given is a plane. Two different sentences, because
+    /// "you are not standing in one" and "there is no plane by that name" have
+    /// different ways out.
+    PlaneNotFound { sought: PlaneRef },
     /// A member with no branch, from a suffix or from `-b`.
     BranchUnspecified { member: String },
     /// A member written so that the branch suffix cannot be told from the path.
@@ -198,6 +202,7 @@ impl EngineError {
             EngineError::SameRepository { .. } => "same_repository",
             EngineError::MemberPathCollision { .. } => "member_path_collision",
             EngineError::ProjectNotFound { .. } => "project_not_found",
+            EngineError::PlaneNotFound { .. } => "plane_not_found",
             EngineError::BranchUnspecified { .. } => "branch_unspecified",
             EngineError::MemberPathAmbiguous { .. } => "member_path_ambiguous",
             EngineError::MemberNotARepository { .. } => "member_not_a_repository",
@@ -232,6 +237,7 @@ impl EngineError {
             | EngineError::SameRepository { .. }
             | EngineError::MemberPathCollision { .. }
             | EngineError::ProjectNotFound { .. }
+            | EngineError::PlaneNotFound { .. }
             | EngineError::BranchUnspecified { .. }
             | EngineError::MemberPathAmbiguous { .. }
             | EngineError::MemberNotARepository { .. }
@@ -351,6 +357,12 @@ impl EngineError {
             EngineError::ProjectNotFound { .. } => {
                 Some("Run bp project list to see what projects exist.".to_owned())
             }
+            EngineError::PlaneNotFound { sought } => Some(match sought {
+                PlaneRef::Id { .. } => "Run bp list to see what planes exist.".to_owned(),
+                PlaneRef::ContainingPath { .. } => {
+                    "cd into a plane, or name one with --plane.".to_owned()
+                }
+            }),
             EngineError::BranchUnspecified { member } => Some(format!(
                 "Pass -b <branch>, or write the member as {member}:<branch>."
             )),
@@ -461,6 +473,12 @@ impl fmt::Display for EngineError {
             EngineError::ProjectNotFound { name } => {
                 write!(f, "there is no project called {name}")
             }
+            EngineError::PlaneNotFound { sought } => match sought {
+                PlaneRef::Id { id } => write!(f, "there is no plane called {id}"),
+                PlaneRef::ContainingPath { path } => {
+                    write!(f, "no plane contains {}", path.display())
+                }
+            },
             EngineError::BranchUnspecified { member } => {
                 write!(f, "no branch given for {member}")
             }

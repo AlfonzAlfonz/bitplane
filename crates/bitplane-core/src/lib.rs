@@ -16,6 +16,8 @@ pub mod error;
 pub mod exit;
 pub mod fsio;
 pub mod git;
+pub mod head;
+pub mod health;
 pub mod interrupt;
 pub mod local;
 pub mod lock;
@@ -24,6 +26,7 @@ pub mod outcome;
 pub mod plane_dir;
 pub mod plane_file;
 pub mod plane_id;
+pub mod read;
 pub mod repo;
 pub mod termination;
 pub mod time;
@@ -39,6 +42,8 @@ pub use exit::ExitCode;
 pub use git::{
     GitPrerequisite, GitProbe, GitVersion, MINIMUM_GIT_VERSION, ProbeFailure, SystemGit,
 };
+pub use head::Head;
+pub use health::{Finding, HealthCheck, PlaneHealth};
 pub use interrupt::Interrupt;
 pub use local::LocalEngine;
 pub use member::{MemberRef, ProjectName, WorktreePath};
@@ -47,5 +52,7 @@ pub use plane_file::{Member, PlaneFile};
 pub use plane_id::PlaneId;
 pub use termination::Termination;
 pub use wire::{
-    BranchIntent, CreatedMember, PlaneCreateRequest, PlaneCreated, Request, Response, dispatch,
+    BranchIntent, CreatedMember, MemberStatus, MemberView, MemberWork, PlaneCreateRequest,
+    PlaneCreated, PlaneList, PlaneListRequest, PlaneRef, PlaneShowRequest, PlaneStatus,
+    PlaneStatusRequest, PlaneView, Request, Response, dispatch,
 };

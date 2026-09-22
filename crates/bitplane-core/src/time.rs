@@ -1,13 +1,18 @@
-//! The one timestamp bitplane writes.
+//! The one timestamp bitplane writes, and the one it says out loud.
 //!
 //! ADR-0003 kept a date library out of the contract — timestamps are RFC 3339
 //! strings on the wire — and the only thing bitplane *writes* is the incomplete
 //! latch, whose contents nothing parses (ADR-0004). So the whole requirement is
 //! "render a `SystemTime` as UTC RFC 3339", which is a dozen lines of civil
 //! calendar arithmetic and not a dependency.
+//!
+//! [`ago`] is the second half of that: a finding saying *"create never
+//! completed, started 3 days ago"* is the difference between confidently
+//! discarding a remnant and wondering whether something is still running, and a
+//! bare timestamp does not say it.
 
 use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// An instant, rendered as RFC 3339 in UTC to whole seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,6 +58,37 @@ impl fmt::Display for Rfc3339 {
     }
 }
 
+/// How long `elapsed` is, in the words a finding prints before "ago".
+///
+/// Coarsened deliberately to one unit: the reader is deciding whether a remnant
+/// is abandoned or still being built, and "3 days" answers that where
+/// "3 days, 4 hours and 11 minutes" only makes it harder to read.
+pub fn ago(elapsed: Duration) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+
+    let seconds = elapsed.as_secs();
+
+    if seconds < MINUTE {
+        "less than a minute".to_owned()
+    } else if seconds < HOUR {
+        counted(seconds / MINUTE, "minute")
+    } else if seconds < DAY {
+        counted(seconds / HOUR, "hour")
+    } else {
+        counted(seconds / DAY, "day")
+    }
+}
+
+fn counted(count: u64, unit: &str) -> String {
+    if count == 1 {
+        format!("1 {unit}")
+    } else {
+        format!("{count} {unit}s")
+    }
+}
+
 const SECONDS_PER_DAY: i64 = 86_400;
 
 /// Howard Hinnant's `civil_from_days`, the standard branch-free conversion from
@@ -81,7 +117,29 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+
+    #[test]
+    fn an_elapsed_span_is_worded_in_its_largest_whole_unit() {
+        let cases = [
+            (0, "less than a minute"),
+            (59, "less than a minute"),
+            (60, "1 minute"),
+            (119, "1 minute"),
+            (120, "2 minutes"),
+            (3_600, "1 hour"),
+            (7_200, "2 hours"),
+            (86_400, "1 day"),
+            (259_200, "3 days"),
+        ];
+
+        for (seconds, expected) in cases {
+            assert_eq!(
+                ago(Duration::from_secs(seconds)),
+                expected,
+                "for {seconds}s"
+            );
+        }
+    }
 
     #[test]
     fn the_epoch_and_the_dates_around_it_render() {

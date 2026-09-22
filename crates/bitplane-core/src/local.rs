@@ -8,8 +8,12 @@ use crate::engine::{Engine, Reader};
 use crate::error::EngineError;
 use crate::git::{GitPrerequisite, GitVersion, SystemGit};
 use crate::interrupt::Interrupt;
+use crate::read::{self, ReadContext};
 use crate::repo::Git;
-use crate::wire::{PlaneCreateRequest, PlaneCreated};
+use crate::wire::{
+    PlaneCreateRequest, PlaneCreated, PlaneList, PlaneListRequest, PlaneShowRequest, PlaneStatus,
+    PlaneStatusRequest, PlaneView,
+};
 
 /// bitplane on the local host.
 ///
@@ -80,9 +84,28 @@ impl LocalEngine {
     pub fn directories(&self) -> &Directories {
         &self.directories
     }
+
+    fn reading(&self) -> ReadContext<'_> {
+        ReadContext {
+            directories: &self.directories,
+            git: &self.git,
+        }
+    }
 }
 
-impl Reader for LocalEngine {}
+impl Reader for LocalEngine {
+    fn plane_list(&self, request: PlaneListRequest) -> Result<PlaneList, EngineError> {
+        read::plane_list(&request, &self.reading())
+    }
+
+    fn plane_show(&self, request: PlaneShowRequest) -> Result<PlaneView, EngineError> {
+        read::plane_show(&request, &self.reading())
+    }
+
+    fn plane_status(&self, request: PlaneStatusRequest) -> Result<PlaneStatus, EngineError> {
+        read::plane_status(&request, &self.reading())
+    }
+}
 
 impl Engine for LocalEngine {
     fn plane_create(&self, request: PlaneCreateRequest) -> Result<PlaneCreated, EngineError> {

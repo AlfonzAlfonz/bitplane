@@ -10,9 +10,14 @@
 //! what keeps the two renderings from drifting apart and lets one fixture
 //! assert both. `code` is not printed: it is the exit status, and a number on
 //! screen that duplicates `$?` is noise.
+//!
+//! One grammar is used everywhere something is listed: a header line, then
+//! indented rows with every column but the last padded to its widest cell. A
+//! fan-out **never prints a count in place of the rows**.
 
 use bitplane_core::{
-    CreatedMember, ErrorEnvelope, Outcome, PerMember, PlaneCreated, Problem, Response,
+    CreatedMember, ErrorEnvelope, Finding, Head, MemberView, MemberWork, Outcome, PerMember,
+    PlaneCreated, PlaneHealth, PlaneList, PlaneStatus, PlaneView, Problem, Response,
 };
 
 /// Whether output is for a person or a program.
@@ -33,6 +38,9 @@ pub fn response(response: &Response, rendering: Rendering) -> String {
         }
         Rendering::Human => match response {
             Response::PlaneCreate(created) => plane(created),
+            Response::PlaneList(list) => listing(list),
+            Response::PlaneShow(plane) => detail(plane),
+            Response::PlaneStatus(status) => fan_out(status),
         },
     }
 }
@@ -53,7 +61,7 @@ fn plane(created: &PlaneCreated) -> String {
         "{}  {}\n\n{}",
         created.id,
         created.directory.display(),
-        columns(&rows, "  ")
+        columns(&rows, INDENT)
     );
 
     // An interrupt that could not take the whole plane back has left something,
@@ -66,6 +74,110 @@ fn plane(created: &PlaneCreated) -> String {
     }
 
     text
+}
+
+/// `bp list`: one block per plane, separated by a blank line.
+///
+/// The headers are laid out as one table across every plane, so the directories
+/// line up down the page; the members of each plane are a table of their own,
+/// because a long ad-hoc path in one plane should not indent every other
+/// plane's rows off the screen.
+fn listing(list: &PlaneList) -> String {
+    let headers: Vec<[String; 3]> = list
+        .planes
+        .iter()
+        .map(|plane| {
+            [
+                plane.id.clone(),
+                plane.directory.display().to_string(),
+                match &plane.created_at {
+                    Some(created) => format!("created {}", day(created)),
+                    None => String::new(),
+                },
+            ]
+        })
+        .collect();
+
+    // Zipped as rows rather than as rendered lines: a plane directory whose
+    // name contains a newline would otherwise slide every following plane one
+    // header out of step and drop the last one entirely.
+    aligned(&headers, "")
+        .into_iter()
+        .zip(&list.planes)
+        .map(|(header, plane)| {
+            format!(
+                "{header}{}{}",
+                columns(&member_rows(plane), INDENT),
+                notes(&plane.health),
+            )
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+/// `bp show`: the plane's own facts, its members, then what was found.
+fn detail(plane: &PlaneView) -> String {
+    let mut facts = vec![[
+        "directory".to_owned(),
+        plane.directory.display().to_string(),
+    ]];
+    if let Some(created) = &plane.created_at {
+        facts.push(["created".to_owned(), minute(created)]);
+    }
+    facts.push(["members".to_owned(), plane.members.len().to_string()]);
+    if plane.health.has_findings() {
+        facts.push(["health".to_owned(), "broken".to_owned()]);
+    }
+
+    let rows: Vec<[String; 4]> = plane
+        .members
+        .iter()
+        .map(|member| {
+            [
+                member.member.to_string(),
+                branch(member.head.as_ref()),
+                member.path.to_string(),
+                labels(&plane.health, member),
+            ]
+        })
+        .collect();
+
+    // A plane with no members prints no blank line and no block, rather than
+    // the separator for a table that is not there.
+    let members = match rows.is_empty() {
+        true => String::new(),
+        false => format!("\n{}", columns(&rows, INDENT)),
+    };
+
+    format!(
+        "{}\n{}{members}{}",
+        plane.id,
+        columns(&facts, INDENT),
+        findings(&plane.health),
+    )
+}
+
+/// `bp status`: git's answer per member, then what was found.
+fn fan_out(status: &PlaneStatus) -> String {
+    let rows: Vec<[String; 3]> = status
+        .members
+        .iter()
+        .map(|member| {
+            [
+                member.member.to_string(),
+                branch(member.head.as_ref()),
+                work(&member.work),
+            ]
+        })
+        .collect();
+
+    format!(
+        "{}  {}\n\n{}{}",
+        status.id,
+        status.directory.display(),
+        columns(&rows, INDENT),
+        findings(&status.health),
+    )
 }
 
 /// `<member>  <branch>  <outcome>  <path>`.
@@ -90,6 +202,113 @@ fn member_row(row: &PerMember<CreatedMember>) -> [String; 4] {
     [row.member.to_string(), branch, outcome, path]
 }
 
+/// `<member>  <branch>  <what was found about it>`.
+fn member_rows(plane: &PlaneView) -> Vec<[String; 3]> {
+    plane
+        .members
+        .iter()
+        .map(|member| {
+            [
+                member.member.to_string(),
+                branch(member.head.as_ref()),
+                labels(&plane.health, member),
+            ]
+        })
+        .collect()
+}
+
+/// The findings about the plane itself, which belong to no member's row.
+fn notes(health: &PlaneHealth) -> String {
+    health
+        .about_the_plane()
+        .map(|finding| format!("{INDENT}{finding}\n"))
+        .collect()
+}
+
+/// The few words naming what was found about one member, where anything was.
+fn labels(health: &PlaneHealth, member: &MemberView) -> String {
+    health
+        .about(&member.member)
+        .map(Finding::label)
+        .collect::<Vec<&str>>()
+        .join(", ")
+}
+
+/// The block `bp show` and `bp status` print under the rows: every finding, and
+/// the command that fixes it. A read reports and never repairs.
+fn findings(health: &PlaneHealth) -> String {
+    if !health.has_findings() {
+        return String::new();
+    }
+
+    let mut rows: Vec<[String; 2]> = Vec::new();
+    for finding in &health.findings {
+        rows.push([
+            finding
+                .member()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            finding.to_string(),
+        ]);
+        if let Some(remedy) = finding.remedy() {
+            rows.push([String::new(), remedy]);
+        }
+    }
+
+    format!("\nfindings\n{}", columns(&rows, INDENT))
+}
+
+/// What git said about one worktree, in the words the reference page uses.
+///
+/// `clean` is the working tree's own word, so a branch with commits to push but
+/// nothing uncommitted reads `clean, 1 ahead` — none of which is drift.
+fn work(work: &MemberWork) -> String {
+    match work {
+        MemberWork::Reported {
+            modified,
+            untracked,
+            ahead,
+        } => {
+            let mut parts = Vec::new();
+
+            if *modified > 0 {
+                parts.push(format!("{modified} modified"));
+            }
+            if *untracked > 0 {
+                parts.push(format!("{untracked} untracked"));
+            }
+            if parts.is_empty() {
+                parts.push("clean".to_owned());
+            }
+            if *ahead > 0 {
+                parts.push(format!("{ahead} ahead"));
+            }
+
+            parts.join(", ")
+        }
+        MemberWork::WorktreeMissing => "worktree missing".to_owned(),
+        MemberWork::SourceRepoMissing => "source repo missing".to_owned(),
+        MemberWork::Unreadable { message } => message.clone(),
+    }
+}
+
+fn branch(head: Option<&Head>) -> String {
+    head.map(ToString::to_string).unwrap_or_else(dash)
+}
+
+/// The date alone, for a listing where the time of day is noise.
+fn day(stamp: &str) -> &str {
+    stamp.get(..10).unwrap_or(stamp)
+}
+
+/// The date and the minute, for the one plane `bp show` is about.
+fn minute(stamp: &str) -> String {
+    match (stamp.get(..10), stamp.get(11..16)) {
+        (Some(day), Some(minute)) => format!("{day} {minute}"),
+        _ => stamp.to_owned(),
+    }
+}
+
 fn human_envelope(envelope: &ErrorEnvelope) -> String {
     let mut text = format!("error[{}]: {}\n", envelope.error, envelope.message);
 
@@ -99,7 +318,7 @@ fn human_envelope(envelope: &ErrorEnvelope) -> String {
     if !envelope.problems.is_empty() {
         let rows: Vec<[String; 2]> = envelope.problems.iter().map(problem_row).collect();
         text.push('\n');
-        text.push_str(&columns(&rows, "  "));
+        text.push_str(&columns(&rows, INDENT));
     }
 
     if let Some(remedy) = &envelope.remedy {
@@ -116,9 +335,25 @@ fn problem_row(problem: &Problem) -> [String; 2] {
     ]
 }
 
-/// Indented rows with every column but the last padded to its widest cell —
-/// the one grammar every fan-out and every problem block uses.
-fn columns<const N: usize>(rows: &[[String; N]], separator: &str) -> String {
+/// What every row but a header is indented by.
+const INDENT: &str = "  ";
+
+/// What separates one column from the next.
+const GUTTER: &str = "  ";
+
+/// [`aligned`], as one block of text.
+fn columns<const N: usize>(rows: &[[String; N]], indent: &str) -> String {
+    aligned(rows, indent).concat()
+}
+
+/// One rendered line per row, each ending in its newline, with every column but
+/// the last padded to its widest cell — the one grammar every fan-out, every
+/// listing and every problem block uses.
+///
+/// A `Vec` rather than a block, because a caller that pairs rows with the things
+/// they came from must not have to split the text back up: a cell containing a
+/// newline would make that split silently wrong.
+fn aligned<const N: usize>(rows: &[[String; N]], indent: &str) -> Vec<String> {
     let widths: Vec<usize> = (0..N)
         .map(|column| {
             rows.iter()
@@ -143,7 +378,7 @@ fn columns<const N: usize>(rows: &[[String; N]], separator: &str) -> String {
                 })
                 .collect();
 
-            format!("  {}\n", cells.join(separator).trim_end())
+            format!("{indent}{}\n", cells.join(GUTTER).trim_end())
         })
         .collect()
 }
@@ -156,7 +391,7 @@ fn dash() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitplane_core::{MemberRef, PlaneId, SkipReason, WorktreePath};
+    use bitplane_core::{HealthCheck, MemberRef, MemberStatus, PlaneId, SkipReason, WorktreePath};
     use std::path::PathBuf;
 
     #[test]
@@ -215,6 +450,147 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&rendered).unwrap();
         assert_eq!(json["action"], "plane_create");
         assert_eq!(json["id"], "bp-7c1e0d44");
+    }
+
+    #[test]
+    fn a_listing_lines_the_planes_up_and_gives_each_its_own_members() {
+        let list = PlaneList {
+            planes: vec![healthy(), drifted()],
+        };
+
+        assert_eq!(
+            response(&Response::PlaneList(list), Rendering::Human),
+            concat!(
+                "auth-work    /planes/auth-work    created 2026-09-18\n",
+                "  @api  feat-login\n",
+                "  @web  feat-login\n",
+                "\n",
+                "bp-a3f9c2e1  /planes/bp-a3f9c2e1  created 2026-09-21\n",
+                "  @api  feat-x  worktree missing\n",
+                "  create never completed, started 3 days ago\n",
+            )
+        );
+    }
+
+    #[test]
+    fn a_plane_file_that_would_not_parse_is_a_row_rather_than_the_end_of_the_scan() {
+        let list = PlaneList {
+            planes: vec![healthy(), unreadable()],
+        };
+
+        let rendered = response(&Response::PlaneList(list), Rendering::Human);
+
+        assert!(rendered.contains("@api  feat-login"), "got:\n{rendered}");
+        assert!(
+            rendered.ends_with(
+                "broken.plane  /planes/broken.plane\n  \
+                 /planes/broken.plane/plane.toml: unknown key \"status\"\n"
+            ),
+            "got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_plane_directory_whose_name_holds_a_newline_does_not_shift_the_listing() {
+        let mut odd = healthy();
+        odd.id = "aa\nbb".to_owned();
+
+        let list = PlaneList {
+            planes: vec![odd, drifted()],
+        };
+
+        let rendered = response(&Response::PlaneList(list), Rendering::Human);
+
+        assert!(
+            rendered.contains("bp-a3f9c2e1"),
+            "the plane after it is still printed: got\n{rendered}"
+        );
+        assert!(
+            rendered.contains("create never completed"),
+            "and so are its findings: got\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_plane_with_no_members_prints_no_separator_for_a_table_that_is_not_there() {
+        let mut empty = healthy();
+        empty.members = Vec::new();
+
+        assert_eq!(
+            response(&Response::PlaneShow(empty), Rendering::Human),
+            concat!(
+                "auth-work\n",
+                "  directory  /planes/auth-work\n",
+                "  created    2026-09-18 09:41\n",
+                "  members    0\n",
+            )
+        );
+    }
+
+    #[test]
+    fn no_planes_at_all_prints_nothing() {
+        assert_eq!(
+            response(&Response::PlaneList(PlaneList::default()), Rendering::Human),
+            ""
+        );
+    }
+
+    #[test]
+    fn a_healthy_plane_shows_its_facts_and_its_members_and_no_findings() {
+        assert_eq!(
+            response(&Response::PlaneShow(healthy()), Rendering::Human),
+            concat!(
+                "auth-work\n",
+                "  directory  /planes/auth-work\n",
+                "  created    2026-09-18 09:41\n",
+                "  members    2\n",
+                "\n",
+                "  @api  feat-login  acme/api\n",
+                "  @web  feat-login  acme/web\n",
+            )
+        );
+    }
+
+    #[test]
+    fn a_plane_with_a_finding_says_health_broken_and_names_the_way_out() {
+        let rendered = response(&Response::PlaneShow(drifted()), Rendering::Human);
+
+        assert!(
+            rendered.contains("  health     broken\n"),
+            "got:\n{rendered}"
+        );
+        assert!(
+            rendered.ends_with(concat!(
+                "findings\n",
+                "        create never completed, started 3 days ago\n",
+                "        nothing in it is yours; bp destroy -p bp-a3f9c2e1 clears it\n",
+                "  @api  the worktree at acme/api is not there\n",
+                "        bp rm @api drops it; bp add @api:<branch> puts it back\n",
+            )),
+            "got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_status_row_reads_in_the_words_the_reference_page_uses() {
+        let rendered = response(&Response::PlaneStatus(status()), Rendering::Human);
+
+        assert_eq!(
+            rendered,
+            concat!(
+                "bp-a3f9c2e1  /planes/bp-a3f9c2e1\n",
+                "\n",
+                "  @api   feat-login             3 modified, 1 untracked, 2 ahead\n",
+                "  @web   feat-login             clean\n",
+                "  @docs  feat-login             clean, 1 ahead\n",
+                "  @ops   (detached at 9f2c1ab)  clean\n",
+                "  @gone  -                      worktree missing\n",
+                "\n",
+                "findings\n",
+                "  @gone  the worktree at acme/gone is not there\n",
+                "         bp rm @gone drops it; bp add @gone:<branch> puts it back\n",
+            )
+        );
     }
 
     #[test]
@@ -309,6 +685,131 @@ mod tests {
             ],
             interrupted: false,
             remnant: false,
+        }
+    }
+
+    fn healthy() -> PlaneView {
+        PlaneView {
+            id: "auth-work".to_owned(),
+            directory: PathBuf::from("/planes/auth-work"),
+            created_at: Some("2026-09-18T09:41:07Z".to_owned()),
+            members: vec![on_branch("@api", "acme/api"), on_branch("@web", "acme/web")],
+            health: PlaneHealth::sound(HealthCheck::Cheap),
+        }
+    }
+
+    fn drifted() -> PlaneView {
+        let api = MemberRef::parse("@api").unwrap();
+
+        PlaneView {
+            id: "bp-a3f9c2e1".to_owned(),
+            directory: PathBuf::from("/planes/bp-a3f9c2e1"),
+            created_at: Some("2026-09-21T14:03:55Z".to_owned()),
+            members: vec![MemberView {
+                member: api.clone(),
+                path: WorktreePath::parse("acme/api").unwrap(),
+                head: Some(Head::Branch {
+                    branch: "feat-x".to_owned(),
+                }),
+            }],
+            health: PlaneHealth {
+                checked: HealthCheck::Cheap,
+                findings: vec![
+                    Finding::CreateNeverCompleted {
+                        plane: "bp-a3f9c2e1".to_owned(),
+                        started: Some("2026-09-18T09:41:07Z".to_owned()),
+                        ago: Some("3 days".to_owned()),
+                    },
+                    Finding::MemberWorktreeMissing {
+                        member: api,
+                        path: WorktreePath::parse("acme/api").unwrap(),
+                    },
+                ],
+            },
+        }
+    }
+
+    fn unreadable() -> PlaneView {
+        PlaneView {
+            id: "broken.plane".to_owned(),
+            directory: PathBuf::from("/planes/broken.plane"),
+            created_at: None,
+            members: Vec::new(),
+            health: PlaneHealth {
+                checked: HealthCheck::Cheap,
+                findings: vec![Finding::Unreadable {
+                    error: bitplane_core::EngineError::ParseError {
+                        path: PathBuf::from("/planes/broken.plane/plane.toml"),
+                        message: "unknown key \"status\"".to_owned(),
+                        legal_keys: Vec::new(),
+                    },
+                }],
+            },
+        }
+    }
+
+    fn status() -> PlaneStatus {
+        let gone = MemberRef::parse("@gone").unwrap();
+
+        PlaneStatus {
+            id: "bp-a3f9c2e1".to_owned(),
+            directory: PathBuf::from("/planes/bp-a3f9c2e1"),
+            members: vec![
+                reporting("@api", "acme/api", Some("feat-login"), 3, 1, 2),
+                reporting("@web", "acme/web", Some("feat-login"), 0, 0, 0),
+                reporting("@docs", "acme/docs", Some("feat-login"), 0, 0, 1),
+                reporting("@ops", "acme/ops", None, 0, 0, 0),
+                MemberStatus {
+                    member: gone.clone(),
+                    path: WorktreePath::parse("acme/gone").unwrap(),
+                    head: None,
+                    work: MemberWork::WorktreeMissing,
+                },
+            ],
+            health: PlaneHealth {
+                checked: HealthCheck::Cheap,
+                findings: vec![Finding::MemberWorktreeMissing {
+                    member: gone,
+                    path: WorktreePath::parse("acme/gone").unwrap(),
+                }],
+            },
+        }
+    }
+
+    fn on_branch(member: &str, path: &str) -> MemberView {
+        MemberView {
+            member: MemberRef::parse(member).unwrap(),
+            path: WorktreePath::parse(path).unwrap(),
+            head: Some(Head::Branch {
+                branch: "feat-login".to_owned(),
+            }),
+        }
+    }
+
+    fn reporting(
+        member: &str,
+        path: &str,
+        branch: Option<&str>,
+        modified: usize,
+        untracked: usize,
+        ahead: usize,
+    ) -> MemberStatus {
+        MemberStatus {
+            member: MemberRef::parse(member).unwrap(),
+            path: WorktreePath::parse(path).unwrap(),
+            head: Some(match branch {
+                Some(branch) => Head::Branch {
+                    branch: branch.to_owned(),
+                },
+                None => Head::Detached {
+                    commit: "9f2c1ab0d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9".to_owned(),
+                },
+            }),
+            work: MemberWork::Reported {
+                modified,
+                untracked,
+                ahead,
+            },
         }
     }
 }
