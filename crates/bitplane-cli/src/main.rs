@@ -2,18 +2,29 @@
 //!
 //! The CLI owns argument parsing and presentation and nothing else. Every
 //! failure it reports is an [`ErrorEnvelope`] built in `bitplane-core`, written
-//! to stderr as one line of JSON; stdout carries results only (ADR-0003).
+//! to stderr; stdout carries results only (ADR-0003).
+
+mod interrupt;
+mod render;
 
 use std::ffi::OsString;
 use std::io::Write;
+use std::path::PathBuf;
 
-use bitplane_core::{ErrorEnvelope, LocalEngine, Termination, dispatch};
-use clap::{Parser, Subcommand};
+use bitplane_core::{
+    BranchIntent, Directories, DirectoryOverrides, EngineError, ErrorEnvelope, Interrupt,
+    LocalEngine, PlaneCreateRequest, Request, Response, SystemEnvironment, Termination, dispatch,
+};
+use clap::{Args, Parser, Subcommand};
+use render::Rendering;
 
 fn main() -> std::process::ExitCode {
-    let termination = run(std::env::args_os());
-    report(&termination, &mut std::io::stderr());
-    termination.exit_code().into()
+    interrupt::listen_for_ctrl_c();
+
+    let invocation = run(std::env::args_os());
+    report(&invocation, &mut std::io::stdout(), &mut std::io::stderr());
+
+    invocation.termination.exit_code().into()
 }
 
 /// Manage planes: named sets of git worktrees that share one lifecycle.
@@ -22,43 +33,158 @@ fn main() -> std::process::ExitCode {
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
+
+    #[command(flatten)]
+    global: GlobalFlags,
+}
+
+/// The flags every command accepts. Documented once, on one page, and never
+/// repeated per command.
+#[derive(Debug, Args)]
+struct GlobalFlags {
+    /// Where plane directories live for this invocation.
+    #[arg(long, global = true, value_name = "path")]
+    planes_dir: Option<PathBuf>,
+
+    /// Where project directories live for this invocation.
+    #[arg(long, global = true, value_name = "path")]
+    projects_dir: Option<PathBuf>,
+
+    /// The config file to read instead of the default.
+    #[arg(long, global = true, value_name = "path")]
+    config: Option<PathBuf>,
+
+    /// Render machine output instead of human output.
+    #[arg(long, global = true)]
+    json: bool,
 }
 
 /// The verbs. Plane verbs are bare; project verbs are prefixed with `project`.
-///
-/// Empty today: this slice builds the frame every later one hangs a verb on.
 #[derive(Debug, Subcommand)]
-enum Command {}
+enum Command {
+    /// Create a plane and the worktrees of every member named.
+    Create(CreateArgs),
+}
+
+#[derive(Debug, Args)]
+struct CreateArgs {
+    /// The members: `@name` for a project, a path for an ad-hoc member. Each
+    /// may carry a `:branch` suffix.
+    #[arg(required = true, value_name = "member")]
+    members: Vec<String>,
+
+    /// The branch for every member that does not carry its own.
+    #[arg(short, long, value_name = "branch")]
+    branch: Option<String>,
+
+    /// The plane id, which is also its directory name.
+    #[arg(long, value_name = "id")]
+    id: Option<String>,
+
+    /// The branch must not already exist.
+    #[arg(long, conflicts_with = "existing_branch")]
+    new_branch: bool,
+
+    /// The branch must already exist.
+    #[arg(long)]
+    existing_branch: bool,
+}
+
+/// What one invocation amounts to: what it wrote to each stream, and how it
+/// ended. Rendered here rather than at the write, so the exit code and the
+/// bytes are decided in one place.
+struct Invocation {
+    stdout: String,
+    stderr: String,
+    termination: Termination,
+}
 
 /// Parses `args` and does what they ask.
-fn run<I, T>(args: I) -> Termination
+fn run<I, T>(args: I) -> Invocation
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    match Cli::try_parse_from(args) {
-        Ok(cli) => execute(cli),
-        Err(error) => render_parse_outcome(error),
+    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+
+    match Cli::try_parse_from(args.clone()) {
+        Ok(cli) => {
+            let rendering = if cli.global.json {
+                Rendering::Json
+            } else {
+                Rendering::Human
+            };
+            execute(cli, rendering)
+        }
+        Err(error) => render_parse_outcome(error, rendering_asked_for(&args)),
     }
 }
 
-fn execute(cli: Cli) -> Termination {
+/// How to render a failure clap would not let us parse.
+///
+/// Read from the raw arguments, because there is no parsed `Cli` to ask — but
+/// stopping at `--`, after which every word is a value rather than a flag.
+fn rendering_asked_for(args: &[OsString]) -> Rendering {
+    if args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == "--json")
+    {
+        Rendering::Json
+    } else {
+        Rendering::Human
+    }
+}
+
+fn execute(cli: Cli, rendering: Rendering) -> Invocation {
     let Some(command) = cli.command else {
-        return no_command().into();
+        return failed(no_command(), rendering);
     };
 
-    // git is checked once, before any command touches anything (ADR-0001).
-    let engine = LocalEngine::new();
-    if let Err(error) = engine.ensure_git_supported() {
-        return error.into();
+    match answer(command, &cli.global) {
+        Ok(response) => Invocation {
+            stdout: render::response(&response, rendering),
+            stderr: String::new(),
+            termination: termination_for(&response),
+        },
+        Err(error) => failed(error.envelope(), rendering),
     }
+}
 
-    let _response = dispatch(&engine, request_for(command));
-    Termination::Ok
+fn answer(command: Command, global: &GlobalFlags) -> Result<Response, EngineError> {
+    let directories = Directories::resolve(
+        &DirectoryOverrides {
+            planes_dir: global.planes_dir.clone(),
+            projects_dir: global.projects_dir.clone(),
+            config: global.config.clone(),
+        },
+        &SystemEnvironment,
+    )?;
+
+    let engine = LocalEngine::new(directories)
+        .with_interrupt(Interrupt::process())
+        .announcing_lock_waits(|object| {
+            // Progress, not a result, so it goes to stderr in both modes.
+            let _ = writeln!(std::io::stderr(), "waiting for {}…", object.display());
+        });
+
+    // git is checked once, before any command touches anything (ADR-0001).
+    engine.ensure_git_supported()?;
+
+    dispatch(&engine, request_for(command))
+}
+
+/// A response that reported an interrupt still goes to stdout — those rows are
+/// the repair instruction — so only the exit code says what happened.
+fn termination_for(response: &Response) -> Termination {
+    match response {
+        Response::PlaneCreate(created) if created.interrupted => Termination::Interrupted,
+        _ => Termination::Ok,
+    }
 }
 
 /// Clap reports `--help` and `--version` as errors; they are neither.
-fn render_parse_outcome(error: clap::Error) -> Termination {
+fn render_parse_outcome(error: clap::Error, rendering: Rendering) -> Invocation {
     use clap::error::ErrorKind;
 
     match error.kind() {
@@ -66,22 +192,34 @@ fn render_parse_outcome(error: clap::Error) -> Termination {
             // clap's own writer: help and version go to stdout, styled or not
             // according to the terminal.
             let _ = error.print();
-            Termination::Ok
+            Invocation {
+                stdout: String::new(),
+                stderr: String::new(),
+                termination: Termination::Ok,
+            }
         }
-        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => no_command().into(),
-        _ => ErrorEnvelope::usage("bad_usage", one_line(&error.render().to_string()))
-            .with_remedy("Run `bp --help` to see what bp can do.")
-            .into(),
+        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => failed(no_command(), rendering),
+        _ => failed(
+            ErrorEnvelope::usage("bad_usage", one_line(&error.render().to_string()))
+                .with_remedy("Run `bp --help` to see what bp can do."),
+            rendering,
+        ),
     }
 }
 
-/// Writes the error envelope, where there is one.
-fn report(termination: &Termination, stderr: &mut impl Write) {
-    let Some(envelope) = termination.envelope() else {
-        return;
-    };
+/// Writes what the invocation produced: results on stdout, the envelope on
+/// stderr, in both modes.
+fn report(invocation: &Invocation, stdout: &mut impl Write, stderr: &mut impl Write) {
+    let _ = write!(stdout, "{}", invocation.stdout);
+    let _ = write!(stderr, "{}", invocation.stderr);
+}
 
-    let _ = writeln!(stderr, "{}", envelope.to_json());
+fn failed(envelope: ErrorEnvelope, rendering: Rendering) -> Invocation {
+    Invocation {
+        stdout: String::new(),
+        stderr: render::envelope(&envelope, rendering),
+        termination: Termination::Failed(envelope),
+    }
 }
 
 /// `bp` on its own. Reported the same way whether clap or [`execute`] notices,
@@ -91,11 +229,21 @@ fn no_command() -> ErrorEnvelope {
         .with_remedy("Run `bp --help` to see what bp can do.")
 }
 
-/// Turns a parsed subcommand into the request that crosses the wire. Empty
-/// while [`Command`] is: the `match` is what makes a forgotten wiring a
-/// compile error.
-fn request_for(command: Command) -> bitplane_core::Request {
-    match command {}
+/// Turns a parsed subcommand into the request that crosses the wire. The
+/// `match` is what makes a forgotten wiring a compile error.
+fn request_for(command: Command) -> Request {
+    match command {
+        Command::Create(args) => Request::PlaneCreate(PlaneCreateRequest {
+            members: args.members,
+            branch: args.branch,
+            id: args.id,
+            intent: match (args.new_branch, args.existing_branch) {
+                (true, _) => BranchIntent::RequireNew,
+                (_, true) => BranchIntent::RequireExisting,
+                _ => BranchIntent::Resolve,
+            },
+        }),
+    }
 }
 
 /// Clap renders a usage error as several lines; the envelope's `message` is one
@@ -122,8 +270,7 @@ mod tests {
 
     #[test]
     fn no_arguments_is_a_usage_failure_naming_what_to_do() {
-        let termination = run(["bp"]);
-        let envelope = termination.envelope().expect("a usage failure");
+        let envelope = envelope_of(run(["bp"]));
 
         assert_eq!(envelope.error, "no_command");
         assert_eq!(envelope.code, bitplane_core::ExitCode::Usage);
@@ -132,8 +279,7 @@ mod tests {
 
     #[test]
     fn an_unknown_flag_is_a_usage_failure_on_one_line() {
-        let termination = run(["bp", "--nonsense"]);
-        let envelope = termination.envelope().expect("a usage failure");
+        let envelope = envelope_of(run(["bp", "--nonsense"]));
 
         assert_eq!(envelope.error, "bad_usage");
         assert_eq!(envelope.code, bitplane_core::ExitCode::Usage);
@@ -145,20 +291,73 @@ mod tests {
     }
 
     #[test]
-    fn a_successful_termination_writes_nothing_to_stderr() {
+    fn create_with_no_member_is_a_usage_failure() {
+        let envelope = envelope_of(run(["bp", "create"]));
+
+        assert_eq!(envelope.code, bitplane_core::ExitCode::Usage);
+    }
+
+    #[test]
+    fn the_two_branch_intents_cannot_both_be_asked_for() {
+        let envelope = envelope_of(run([
+            "bp",
+            "create",
+            "/repos/api",
+            "-b",
+            "feat",
+            "--new-branch",
+            "--existing-branch",
+        ]));
+
+        assert_eq!(envelope.code, bitplane_core::ExitCode::Usage);
+    }
+
+    #[test]
+    fn a_successful_invocation_writes_nothing_to_stderr() {
+        let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        report(&Termination::Ok, &mut stderr);
+
+        report(
+            &Invocation {
+                stdout: String::new(),
+                stderr: String::new(),
+                termination: Termination::Ok,
+            },
+            &mut stdout,
+            &mut stderr,
+        );
 
         assert!(stderr.is_empty());
     }
 
     #[test]
-    fn a_failure_is_one_line_of_json_on_stderr() {
+    fn a_failure_is_rendered_for_a_human_by_default() {
+        let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        report(&run(["bp"]), &mut stderr);
+        report(&run(["bp"]), &mut stdout, &mut stderr);
+
+        let written = String::from_utf8(stderr).unwrap();
+        assert!(written.starts_with("error[no_command]: "), "got {written}");
+        assert!(stdout.is_empty(), "stdout carries results only");
+    }
+
+    #[test]
+    fn a_failure_is_one_line_of_json_under_json() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        report(&run(["bp", "--json"]), &mut stdout, &mut stderr);
 
         let written = String::from_utf8(stderr).unwrap();
         assert_eq!(written.lines().count(), 1);
         assert!(serde_json::from_str::<serde_json::Value>(&written).is_ok());
+        assert!(stdout.is_empty(), "stdout carries results only");
+    }
+
+    fn envelope_of(invocation: Invocation) -> ErrorEnvelope {
+        invocation
+            .termination
+            .envelope()
+            .expect("a failure")
+            .clone()
     }
 }

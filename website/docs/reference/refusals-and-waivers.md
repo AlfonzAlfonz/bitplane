@@ -219,6 +219,22 @@ This can only happen for an **adopted** project or an **ad-hoc member**, whose
 source repo is your own checkout and occupies whatever branch you are sitting
 on. A bitplane-owned source repo is bare and occupies nothing.
 
+A worktree whose directory has been deleted still holds its branch — git refuses
+`worktree add` on it exactly as firmly, and only `git worktree prune` clears the
+record. So the refusal is the same and only the remedy changes, because "check
+out a different branch there" names a directory that is not there:
+
+```
+error[branch_occupied]: feat-login is already checked out in /Users/alfonz/planes/bp-a3f9c2e1/acme/api
+
+  /Users/alfonz/planes/bp-a3f9c2e1/acme/api  is gone, but git still records it as holding the branch
+
+remedy: Run git worktree prune in /Users/alfonz/projects/api to clear the stale record, then try again.
+```
+
+`bp` never prunes for you. Pruning is repo-wide, and a repository holding an
+**ad-hoc member** is yours, not `bp`'s.
+
 #### `script_blocked`
 
 A `pre_worktree_remove` script exited non-zero. The pass aborts and **nothing is
@@ -253,10 +269,17 @@ exists. Re-running identically will never help.
 | `invalid_plane_id` | `Auth_Work is not a valid plane id` | `Use lowercase letters, digits and . _ - ; start with a letter or digit; 64 characters at most.` |
 | `project_name_taken` | `codestyle is already a project` | `acme-codestyle is free; re-run with --name acme-codestyle.` |
 | `reserved_path_segment` | `a worktree of this repo would land at .bitplane/api, which is reserved` | `Move the repository out of a directory called .bitplane.` |
-| `duplicate_member` | `@api is already a member of bp-a3f9c2e1` | `Run` `bp rm @api`, `then` `bp add @api:feat-login.` |
+| `duplicate_member` | `@api is already a member of bp-a3f9c2e1` | `Run` `bp rm @api`, `then` `bp add @api:<branch>.` |
+| `duplicate_member` | `/Users/alfonz/projects/api is named twice` | `A plane holds at most one worktree per repository; name it once.` |
+| `same_repository` | `/Users/alfonz/projects/api/../side is a worktree of the same repository as /Users/alfonz/projects/api` | `A plane holds at most one worktree per repository; name one of them.` |
+| `member_path_collision` | `/Users/alfonz/one/repos/api and /Users/alfonz/two/repos/api would both land at repos/api` | `A plane holds one worktree per derived path; put one of them in another plane.` |
+| `member_not_a_repository` | `/Users/alfonz/scratch is not a git repository` | `Point at a directory that is a git repository, or create one with git init.` |
+| `invalid_project_name` | `Codestyle is not a valid project name` | `Use lowercase letters, digits and . _ - ; start with a letter or digit.` |
 | `branch_unspecified` | `no branch given for @api` | `Pass -b <branch>, or write the member as @api:<branch>.` |
 | `base_branch_unresolved` | `@api has no default branch to cut feat-login from` | `Set one with git remote set-head origin <branch>, or pass --existing-branch to use a branch that is already there.` |
 | `branch_intent_requires_fetch` | `--no-fetch cannot be combined with the default branch intent` | `Drop --no-fetch, or pass --new-branch to create feat-x deliberately.` |
+| `branch_intent_unmet` | `feat-login already exists in @api` | `Drop --new-branch, or choose a name no branch has taken.` |
+| `branch_intent_unmet` | `feat-login does not exist in @api` | `Drop --existing-branch, or create the branch first.` |
 | `member_path_ambiguous` | `~/projects/weird:name could be a path or a member with a branch suffix` | `Register it with` `bp project adopt` `and use its @name instead.` |
 | `plane_not_found` | `no plane contains /Users/alfonz/src` | `cd into a plane, or name one with --plane.` |
 | `plane_not_found` | `there is no plane called auth-work` | `Run` `bp list` `to see what planes exist.` |
@@ -290,9 +313,22 @@ Exit code `1`. The operation ran and did not succeed.
 | `script_failed` | `install exited 1 in @api; the worktree was created` | `See the log, fix the cause, then run bp run @api install.` |
 | `script_failed` | `install exited 1 in @api` | `See the log, fix the cause, then run bp run @api install.` |
 | `parse_error` | `~/.local/share/bitplane/projects/api/project.toml: unknown key "post_worktree_created" in [scripts.install]` | `Legal keys are argv, shell, post_worktree_create and pre_worktree_remove.` |
+| `parse_error` | `~/planes/bp-a3f9c2e1/plane.toml: unknown key "host"` | `Legal keys are version, id and members.` |
+| `parse_error` | `~/.config/bitplane/config.toml: unknown key "plane_dir"` | `Legal keys are version, planes_dir and projects_dir.` |
+| `git_failed` | `git worktree add exited 128: could not create leading directories of '~/planes/bp-a3f9c2e1/acme/api'` | none |
 | `fetch_failed` | `1 of 2 fetchable projects could not be fetched` | none |
 | `repair_failed` | `@style was renamed; 1 of 2 planes could not be repaired` | `Fix what the rows report, then run the command again; repairing is idempotent, so re-running is safe.` |
 | `io` | `~/planes/bp-a3f9c2e1/plane.toml: permission denied` | none |
+
+`branch_intent_unmet` is `--new-branch` on a branch that is already there, or
+`--existing-branch` on one that is not. It is raised at the preflight, before
+anything is claimed, so nothing is created either way.
+
+`git_failed` is git refusing something bitplane asked for, quoted back. The
+message names the subcommand, git's exit code and git's own diagnostic — the
+`fatal:` line, not the progress line above it. Where bitplane can say something
+better in its own words it does, and
+[`branch_occupied`](#branch_occupied) is that case; `git_failed` is what is left.
 
 `repair_failed` is raised by [`bp rename`](./plane/rename.md),
 [`bp repair`](./plane/repair.md) and [`bp project rename`](./project/rename.md)

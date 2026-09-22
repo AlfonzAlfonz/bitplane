@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::exit::ExitCode;
 use crate::git::{GitVersion, MINIMUM_GIT_VERSION};
+use crate::outcome::{Outcome, PerMember};
+use crate::plane_id::GENERATED_ID_PREFIX;
+use crate::wire::CreatedMember;
 
 /// What every bitplane failure looks like on the wire.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,11 +63,121 @@ pub enum EngineError {
     },
     /// The request could not be acted on as given.
     InvalidRequest { message: String },
+    /// A user-chosen plane id starting with the reserved generated-id prefix.
+    ReservedPlaneId,
+    /// A plane id outside `[a-z0-9][a-z0-9._-]*`, 64 characters at most.
+    InvalidPlaneId { id: String },
+    /// The id names something that is already there. Classified, so the remedy
+    /// names what is actually at the path (ADR-0004).
+    PlaneIdInUse { id: String, found: Occupant },
+    /// A string that is not a project name, where one was required.
+    InvalidProjectName { name: String },
+    /// A member's derived worktree path would start with `.bitplane`.
+    ReservedPathSegment { path: String },
+    /// Two members of one plane resolving to the same thing. A plane holds at
+    /// most one worktree per project.
+    ///
+    /// `plane` names the plane the member is already in, where there is one;
+    /// `create` has not claimed a plane yet, so for it the member was simply
+    /// named twice.
+    DuplicateMember {
+        member: String,
+        plane: Option<String>,
+    },
+    /// Two members that are different paths but one repository — a checkout
+    /// and a linked worktree of it, say.
+    SameRepository { first: String, second: String },
+    /// Two different members whose worktrees would land at the same place.
+    /// Plane layout is a pure function of the source, so there is no
+    /// disambiguator to reach for.
+    MemberPathCollision {
+        first: String,
+        second: String,
+        path: String,
+    },
+    /// A name that is not a project on this host.
+    ProjectNotFound { name: String },
+    /// A member with no branch, from a suffix or from `-b`.
+    BranchUnspecified { member: String },
+    /// A member written so that the branch suffix cannot be told from the path.
+    MemberPathAmbiguous { spec: String },
+    /// An ad-hoc member pointing at something that is not a git repository.
+    MemberNotARepository { path: PathBuf, reason: String },
+    /// `--new-branch` on a branch that exists, or `--existing-branch` on one
+    /// that does not.
+    BranchIntentUnmet {
+        member: String,
+        branch: String,
+        wanted: BranchWanted,
+    },
+    /// A new branch was asked for and there is nothing to cut it from.
+    BaseBranchUnresolved { member: String, branch: String },
+    /// The branch is checked out in some worktree of the member's own repo, so
+    /// git will not have it. Reported in bitplane's words, not git's.
+    BranchOccupied {
+        branch: String,
+        repo: PathBuf,
+        worktree: PathBuf,
+        /// Whether the holding worktree's directory is gone. Git refuses all
+        /// the same, but the way out is to clear the record rather than to
+        /// check something else out.
+        stale: bool,
+    },
+    /// A file bitplane needs did not parse.
+    ParseError {
+        path: PathBuf,
+        message: String,
+        /// What was legal there, for the remedy. Empty where the failure is not
+        /// about a key.
+        legal_keys: Vec<String>,
+    },
+    /// A git command bitplane ran did not succeed.
+    GitFailed { message: String },
+    /// `create` produced no plane. The per-member rows ride inside the error,
+    /// because the envelope `Err` is for operations that produced no durable
+    /// state — "never started" and "started, then fully unwound" alike
+    /// (ADR-0004).
+    CreateAborted {
+        id: String,
+        members: Vec<PerMember<CreatedMember>>,
+        rollback: Vec<PerMember<()>>,
+        /// Whether the unwind itself failed, leaving a directory behind.
+        remnant: bool,
+    },
     /// A lock could not be taken in time. The one failure that means "try
     /// again" rather than "this did not work".
     LockTimeout { object: PathBuf },
     /// The filesystem refused.
     Io { path: PathBuf, message: String },
+}
+
+/// What `create` found at a plane directory it could not claim.
+///
+/// Three different things, so the remedy names what is actually there rather
+/// than saying "already in use" and leaving the user to look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum Occupant {
+    /// A plane, complete.
+    Plane,
+    /// A plane directory whose `create` never finished. Nothing in it is the
+    /// user's, so it is safe to discard.
+    LatchedRemnant,
+    /// A claimed directory with no plane file — the window between `mkdir` and
+    /// the first write, or what a crash in it left.
+    ClaimWithoutPlaneFile,
+}
+
+/// Which way a branch intent was not met.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum BranchWanted {
+    /// `--new-branch`, and the branch is already there.
+    New,
+    /// `--existing-branch`, and it is not.
+    Existing,
 }
 
 impl EngineError {
@@ -76,6 +189,24 @@ impl EngineError {
             EngineError::GitVersionUnreadable { .. } => "git_version_unreadable",
             EngineError::GitTooOld { .. } => "git_too_old",
             EngineError::InvalidRequest { .. } => "invalid_request",
+            EngineError::ReservedPlaneId => "reserved_plane_id",
+            EngineError::InvalidPlaneId { .. } => "invalid_plane_id",
+            EngineError::PlaneIdInUse { .. } => "plane_id_in_use",
+            EngineError::InvalidProjectName { .. } => "invalid_project_name",
+            EngineError::ReservedPathSegment { .. } => "reserved_path_segment",
+            EngineError::DuplicateMember { .. } => "duplicate_member",
+            EngineError::SameRepository { .. } => "same_repository",
+            EngineError::MemberPathCollision { .. } => "member_path_collision",
+            EngineError::ProjectNotFound { .. } => "project_not_found",
+            EngineError::BranchUnspecified { .. } => "branch_unspecified",
+            EngineError::MemberPathAmbiguous { .. } => "member_path_ambiguous",
+            EngineError::MemberNotARepository { .. } => "member_not_a_repository",
+            EngineError::BranchIntentUnmet { .. } => "branch_intent_unmet",
+            EngineError::BaseBranchUnresolved { .. } => "base_branch_unresolved",
+            EngineError::BranchOccupied { .. } => "branch_occupied",
+            EngineError::ParseError { .. } => "parse_error",
+            EngineError::GitFailed { .. } => "git_failed",
+            EngineError::CreateAborted { .. } => "create_aborted",
             EngineError::LockTimeout { .. } => "lock_timeout",
             EngineError::Io { .. } => "io",
         }
@@ -88,9 +219,33 @@ impl EngineError {
             | EngineError::GitUnusable { .. }
             | EngineError::GitVersionUnreadable { .. }
             | EngineError::GitTooOld { .. } => ExitCode::PrerequisiteMissing,
-            EngineError::InvalidRequest { .. } => ExitCode::Usage,
+
+            // Usage: the request was malformed, or what it asked to create
+            // already exists. Re-running it identically will never help.
+            EngineError::InvalidRequest { .. }
+            | EngineError::ReservedPlaneId
+            | EngineError::InvalidPlaneId { .. }
+            | EngineError::PlaneIdInUse { .. }
+            | EngineError::InvalidProjectName { .. }
+            | EngineError::ReservedPathSegment { .. }
+            | EngineError::DuplicateMember { .. }
+            | EngineError::SameRepository { .. }
+            | EngineError::MemberPathCollision { .. }
+            | EngineError::ProjectNotFound { .. }
+            | EngineError::BranchUnspecified { .. }
+            | EngineError::MemberPathAmbiguous { .. }
+            | EngineError::MemberNotARepository { .. }
+            | EngineError::BranchIntentUnmet { .. }
+            | EngineError::BaseBranchUnresolved { .. } => ExitCode::Usage,
+
             EngineError::LockTimeout { .. } => ExitCode::Busy,
-            EngineError::Io { .. } => ExitCode::Failure,
+
+            // Failure: the operation ran and did not succeed.
+            EngineError::BranchOccupied { .. }
+            | EngineError::ParseError { .. }
+            | EngineError::GitFailed { .. }
+            | EngineError::CreateAborted { .. }
+            | EngineError::Io { .. } => ExitCode::Failure,
         }
     }
 
@@ -111,6 +266,30 @@ impl EngineError {
                 vec![Problem::about_path(object, "is locked by another process")]
             }
             EngineError::Io { path, message } => vec![Problem::about_path(path, message)],
+            EngineError::BranchOccupied {
+                branch,
+                worktree,
+                stale,
+                ..
+            } => vec![Problem::about_path(
+                worktree,
+                if *stale {
+                    "is gone, but git still records it as holding the branch".to_owned()
+                } else {
+                    format!("its working tree is on {branch}")
+                },
+            )],
+            // The rows a failed `create` carries are the repair instruction, so
+            // they are the problems: what failed, and what was not attempted
+            // because of it. A member that succeeded is not a problem — it was
+            // unwound with the rest.
+            EngineError::CreateAborted {
+                members, rollback, ..
+            } => members
+                .iter()
+                .filter_map(problem_from_row)
+                .chain(rollback.iter().filter_map(problem_from_rollback))
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -129,7 +308,94 @@ impl EngineError {
             EngineError::LockTimeout { .. } => {
                 Some("Another bitplane process holds it; retry once that one finishes.".to_owned())
             }
-            EngineError::InvalidRequest { .. } | EngineError::Io { .. } => None,
+            EngineError::ReservedPlaneId => Some(format!(
+                "Choose an id that does not start with {GENERATED_ID_PREFIX}."
+            )),
+            EngineError::InvalidPlaneId { .. } => Some(
+                "Use lowercase letters, digits and . _ - ; start with a letter or digit; \
+                 64 characters at most."
+                    .to_owned(),
+            ),
+            EngineError::PlaneIdInUse { id, found } => Some(match found {
+                Occupant::Plane => {
+                    "Choose another id, or destroy the existing plane first.".to_owned()
+                }
+                Occupant::LatchedRemnant => {
+                    format!("Nothing in it is yours; run bp destroy -p {id} to clear it.")
+                }
+                Occupant::ClaimWithoutPlaneFile => {
+                    "Run bp doctor to see what is in it, then remove the directory by hand."
+                        .to_owned()
+                }
+            }),
+            EngineError::InvalidProjectName { .. } => Some(
+                "Use lowercase letters, digits and . _ - ; start with a letter or digit."
+                    .to_owned(),
+            ),
+            EngineError::ReservedPathSegment { .. } => {
+                Some("Move the repository out of a directory called .bitplane.".to_owned())
+            }
+            EngineError::DuplicateMember { member, plane } => Some(match plane {
+                Some(_) => format!("Run bp rm {member}, then bp add {member}:<branch>."),
+                None => {
+                    "A plane holds at most one worktree per repository; name it once.".to_owned()
+                }
+            }),
+            EngineError::SameRepository { .. } => Some(
+                "A plane holds at most one worktree per repository; name one of them.".to_owned(),
+            ),
+            EngineError::MemberPathCollision { .. } => Some(
+                "A plane holds one worktree per derived path; put one of them in another plane."
+                    .to_owned(),
+            ),
+            EngineError::ProjectNotFound { .. } => {
+                Some("Run bp project list to see what projects exist.".to_owned())
+            }
+            EngineError::BranchUnspecified { member } => Some(format!(
+                "Pass -b <branch>, or write the member as {member}:<branch>."
+            )),
+            EngineError::MemberPathAmbiguous { .. } => {
+                Some("Register it with bp project adopt and use its @name instead.".to_owned())
+            }
+            EngineError::MemberNotARepository { .. } => Some(
+                "Point at a directory that is a git repository, or create one with git init."
+                    .to_owned(),
+            ),
+            EngineError::BranchIntentUnmet { wanted, .. } => Some(match wanted {
+                BranchWanted::New => {
+                    "Drop --new-branch, or choose a name no branch has taken.".to_owned()
+                }
+                BranchWanted::Existing => {
+                    "Drop --existing-branch, or create the branch first.".to_owned()
+                }
+            }),
+            EngineError::BaseBranchUnresolved { .. } => Some(
+                "Set one with git remote set-head origin <branch>, or pass --existing-branch \
+                 to use a branch that is already there."
+                    .to_owned(),
+            ),
+            EngineError::BranchOccupied { repo, stale, .. } => Some(if *stale {
+                format!(
+                    "Run git worktree prune in {} to clear the stale record, then try again.",
+                    repo.display()
+                )
+            } else {
+                "Check out a different branch there, or give this member a branch no worktree \
+                 holds."
+                    .to_owned()
+            }),
+            EngineError::ParseError { legal_keys, .. } => {
+                (!legal_keys.is_empty()).then(|| format!("Legal keys are {}.", listed(legal_keys)))
+            }
+            EngineError::CreateAborted { id, remnant, .. } => Some(if *remnant {
+                format!("Run bp destroy -p {id} to clear the remnant.")
+            } else {
+                "Nothing was left behind. Fix what the rows report, then run bp create again."
+                    .to_owned()
+            }),
+            EngineError::InvalidRequest { .. }
+            | EngineError::GitFailed { .. }
+            | EngineError::Io { .. } => None,
         }
     }
 }
@@ -156,6 +422,86 @@ impl fmt::Display for EngineError {
                 )
             }
             EngineError::InvalidRequest { message } => write!(f, "{message}"),
+            EngineError::ReservedPlaneId => {
+                write!(
+                    f,
+                    "{GENERATED_ID_PREFIX} is reserved for generated plane ids"
+                )
+            }
+            EngineError::InvalidPlaneId { id } => write!(f, "{id} is not a valid plane id"),
+            EngineError::PlaneIdInUse { id, found } => match found {
+                Occupant::Plane => write!(f, "{id} is already a plane"),
+                Occupant::LatchedRemnant => {
+                    write!(f, "{id} exists but was never completed")
+                }
+                Occupant::ClaimWithoutPlaneFile => {
+                    write!(f, "{id} is a claimed directory with no plane file")
+                }
+            },
+            EngineError::InvalidProjectName { name } => {
+                write!(f, "{name} is not a valid project name")
+            }
+            EngineError::ReservedPathSegment { path } => write!(
+                f,
+                "a worktree of this repo would land at {path}, which is reserved"
+            ),
+            EngineError::DuplicateMember { member, plane } => match plane {
+                Some(plane) => write!(f, "{member} is already a member of {plane}"),
+                None => write!(f, "{member} is named twice"),
+            },
+            EngineError::SameRepository { first, second } => write!(
+                f,
+                "{second} is a worktree of the same repository as {first}"
+            ),
+            EngineError::MemberPathCollision {
+                first,
+                second,
+                path,
+            } => write!(f, "{first} and {second} would both land at {path}"),
+            EngineError::ProjectNotFound { name } => {
+                write!(f, "there is no project called {name}")
+            }
+            EngineError::BranchUnspecified { member } => {
+                write!(f, "no branch given for {member}")
+            }
+            EngineError::MemberPathAmbiguous { spec } => {
+                write!(f, "{spec} could be a path or a member with a branch suffix")
+            }
+            EngineError::MemberNotARepository { path, reason } => {
+                write!(f, "{} {reason}", path.display())
+            }
+            EngineError::BranchIntentUnmet {
+                member,
+                branch,
+                wanted,
+            } => match wanted {
+                BranchWanted::New => write!(f, "{branch} already exists in {member}"),
+                BranchWanted::Existing => write!(f, "{branch} does not exist in {member}"),
+            },
+            EngineError::BaseBranchUnresolved { member, branch } => {
+                write!(f, "{member} has no default branch to cut {branch} from")
+            }
+            EngineError::BranchOccupied {
+                branch, worktree, ..
+            } => write!(
+                f,
+                "{branch} is already checked out in {}",
+                worktree.display()
+            ),
+            EngineError::ParseError { path, message, .. } => {
+                write!(f, "{}: {message}", path.display())
+            }
+            EngineError::GitFailed { message } => f.write_str(message),
+            EngineError::CreateAborted { id, remnant, .. } => {
+                if *remnant {
+                    write!(
+                        f,
+                        "create did not finish and {id} could not be fully removed"
+                    )
+                } else {
+                    write!(f, "create did not finish; {id} was removed")
+                }
+            }
             EngineError::LockTimeout { object } => {
                 write!(f, "timed out waiting for the lock on {}", object.display())
             }
@@ -167,6 +513,48 @@ impl fmt::Display for EngineError {
 }
 
 impl Error for EngineError {}
+
+impl EngineError {
+    /// The filesystem refusing, named by the path it refused.
+    pub fn io(path: &Path, err: std::io::Error) -> EngineError {
+        EngineError::Io {
+            path: path.to_path_buf(),
+            message: err.to_string(),
+        }
+    }
+}
+
+/// One failed member of an aborted `create`, as a problem.
+fn problem_from_row(row: &PerMember<CreatedMember>) -> Option<Problem> {
+    let message = match &row.outcome {
+        Outcome::Failed(error) => format!("failed: {error}"),
+        Outcome::Skipped(reason) => format!("skipped: {}", reason.reason()),
+        Outcome::Ok(_) | Outcome::AlreadyDone => return None,
+    };
+
+    Some(Problem::about(row.member.to_string(), message))
+}
+
+/// A member whose worktree the unwind could not take back. Only the failures:
+/// a clean rollback is what the user expects and needs no line.
+fn problem_from_rollback(row: &PerMember<()>) -> Option<Problem> {
+    match &row.outcome {
+        Outcome::Failed(error) => Some(Problem::about(
+            row.member.to_string(),
+            format!("could not be removed: {error}"),
+        )),
+        _ => None,
+    }
+}
+
+/// `a`, `a and b`, `a, b and c` — the form the remedies are written in.
+fn listed(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
 
 impl ErrorEnvelope {
     /// A usage failure — a malformed command line, or a name already taken.

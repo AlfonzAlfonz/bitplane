@@ -11,7 +11,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bitplane_core::{EngineError, ExitCode, GitVersion, LocalEngine, MINIMUM_GIT_VERSION};
+use bitplane_core::testing::scratch_dir;
+use bitplane_core::{
+    Directories, EngineError, ExitCode, GitVersion, LocalEngine, MINIMUM_GIT_VERSION,
+};
 
 #[test]
 fn a_supported_git_passes_and_reports_its_version() {
@@ -111,7 +114,10 @@ fn the_check_runs_once_however_many_times_it_is_asked() {
 /// Builds an engine whose `PATH` contains only `dir`, so the stub is the only
 /// git it can find.
 fn engine_with_git_at(dir: &Path) -> LocalEngine {
-    LocalEngine::with_git_search_path(dir)
+    let host = scratch_dir("git-preflight-host");
+
+    LocalEngine::new(Directories::new(host.join("planes"), host.join("projects")))
+        .with_git_search_path(dir)
 }
 
 /// Writes an executable `git` at a fresh directory, whose body is `body`.

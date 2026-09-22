@@ -1,12 +1,17 @@
-//! The six exit codes.
+//! The exit codes.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Every code `bp` can exit with — wkt's set, plus `Busy` (ADR-0003).
+/// Every code `bp` can exit with — wkt's set, plus `Busy` (ADR-0003), plus the
+/// one the shell gives you.
 ///
 /// `Busy` is bitplane's addition, for a lock timeout: it is neither a usage
 /// error nor a failure of the operation but "try again", and a script needs to
 /// tell that apart to know whether retrying is sane.
+///
+/// `Interrupted` is `128 + SIGINT`, the shell's convention rather than
+/// bitplane's. It never appears in an error envelope: an interrupted run prints
+/// the rows it has on stdout (ADR-0004), so there is no failure to report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum ExitCode {
@@ -24,6 +29,8 @@ pub enum ExitCode {
     PrerequisiteMissing = 4,
     /// A lock on a plane or a source repo could not be taken in time.
     Busy = 5,
+    /// Ctrl-C. The run stopped scheduling, unwound what it had, and printed it.
+    Interrupted = 130,
 }
 
 impl ExitCode {
@@ -70,6 +77,7 @@ impl ExitCode {
             3 => Some(ExitCode::Drift),
             4 => Some(ExitCode::PrerequisiteMissing),
             5 => Some(ExitCode::Busy),
+            130 => Some(ExitCode::Interrupted),
             _ => None,
         }
     }
@@ -88,6 +96,7 @@ mod tests {
             (ExitCode::Drift, 3),
             (ExitCode::PrerequisiteMissing, 4),
             (ExitCode::Busy, 5),
+            (ExitCode::Interrupted, 130),
         ];
 
         for (code, number) in all {

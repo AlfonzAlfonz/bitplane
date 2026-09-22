@@ -14,6 +14,9 @@ pub enum Termination {
     Ok,
     /// The command did what was asked and found drift.
     Drift,
+    /// Ctrl-C. The rows the run has are still on stdout — they are the repair
+    /// instruction — so there is no envelope, only a different exit code.
+    Interrupted,
     /// The command failed. The envelope is written to stderr as JSON.
     Failed(ErrorEnvelope),
 }
@@ -24,6 +27,7 @@ impl Termination {
         match self {
             Termination::Ok => ExitCode::Ok,
             Termination::Drift => ExitCode::Drift,
+            Termination::Interrupted => ExitCode::Interrupted,
             Termination::Failed(envelope) => envelope.code,
         }
     }
@@ -31,7 +35,7 @@ impl Termination {
     /// The envelope to write to stderr, where there is one.
     pub fn envelope(&self) -> Option<&ErrorEnvelope> {
         match self {
-            Termination::Ok | Termination::Drift => None,
+            Termination::Ok | Termination::Drift | Termination::Interrupted => None,
             Termination::Failed(envelope) => Some(envelope),
         }
     }
@@ -55,7 +59,7 @@ mod tests {
     use crate::error::EngineError;
 
     #[test]
-    fn all_six_exit_codes_are_reachable_through_a_termination() {
+    fn every_exit_code_is_reachable_through_a_termination() {
         assert_eq!(Termination::Ok.exit_code(), ExitCode::Ok);
         assert_eq!(Termination::Drift.exit_code(), ExitCode::Drift);
 
@@ -93,5 +97,12 @@ mod tests {
     fn a_successful_termination_has_no_envelope() {
         assert!(Termination::Ok.envelope().is_none());
         assert!(Termination::Drift.envelope().is_none());
+    }
+
+    #[test]
+    fn an_interrupted_run_exits_130_with_nothing_on_stderr() {
+        assert_eq!(Termination::Interrupted.exit_code(), ExitCode::Interrupted);
+        assert_eq!(Termination::Interrupted.exit_code().as_u8(), 130);
+        assert!(Termination::Interrupted.envelope().is_none());
     }
 }
