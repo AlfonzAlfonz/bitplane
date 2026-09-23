@@ -569,25 +569,54 @@ fn plane_status() -> Vec<Case> {
 
 fn project_add() -> Vec<Case> {
     vec![
+        // A project is named after its URL now, so these fixtures serve the
+        // documented URL itself rather than aliasing a scratch path to it.
         Case {
             example: "Output",
             expectation: Expectation::Matches,
             build: |world| {
-                world.forge(CODESTYLE);
+                world.hosted_forge(CODESTYLE);
             },
         },
         Case {
-            example: "The default name is taken",
+            example: "A nested group becomes a nested name",
             expectation: Expectation::Matches,
             build: |world| {
-                world.project(CODESTYLE);
+                world.hosted_forge("git@gitlab.com:acme/platform/tooling/codestyle.git");
+            },
+        },
+        Case {
+            example: "The repo is already registered",
+            expectation: Expectation::Matches,
+            build: |world| {
+                world.hosted_forge(CODESTYLE);
+                world.register_url(CODESTYLE);
+            },
+        },
+        Case {
+            example: "The name is taken by a different repo",
+            expectation: Expectation::Matches,
+            build: |world| {
+                // Two forges, one path: the host is not part of the name.
+                world.hosted_forge(CODESTYLE);
+                world.hosted_forge("git@github.com:acme/codestyle.git");
+                world.register_url(CODESTYLE);
+            },
+        },
+        Case {
+            example: "The name would nest inside another project",
+            expectation: Expectation::Matches,
+            build: |world| {
+                world.hosted_forge("git@gitlab.com:acme.git");
+                world.hosted_forge(CODESTYLE);
+                world.register_url("git@gitlab.com:acme.git");
             },
         },
         Case {
             example: "The URL derives a name the charset will not take",
             expectation: Expectation::Matches,
             build: |world| {
-                world.forge("git@gitlab.com:acme/MyProject.git");
+                world.hosted_forge("git@gitlab.com:acme/code+style.git");
             },
         },
     ]

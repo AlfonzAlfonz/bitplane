@@ -103,18 +103,40 @@ owned project holds no branch to collide with.
 
 ## The name
 
-A project's name defaults to the last segment of its source — `api` from
-`git@gitlab.com:acme/api.git`, `bitplane` from `~/projects/bitplane`. Names are
-flat, lowercase `[a-z0-9][a-z0-9._-]*`, and unique on your machine. `--name`
-overrides the default.
+A project's name is a **path**: `/`-separated segments, each lowercase
+`[a-z0-9][a-z0-9._-]*`, unique on your machine. `--name` overrides the default,
+and the default is *use the namespace when there is one*:
 
-When the default is already taken, bitplane **refuses and suggests**, rather
-than quietly picking something else:
+- from a **URL with a host**, the whole path after it —
+  `@acme/platform/tooling/codestyle` from
+  `git@gitlab.com:acme/platform/tooling/codestyle.git`. A forge path is a
+  namespace: everyone who clones the repo agrees on it.
+- from a **path on your disk**, the last segment — `@bitplane` from
+  `~/projects/bitplane`. Where your home directory sits is an accident, and
+  `@users/alfonz/projects/bitplane` would name your machine, not the project.
+
+That is what stops `acme/platform/codestyle` and `acme/infra/codestyle` from
+both wanting to be `@codestyle`, and it is why importing a whole group tree
+needs no `--name` per repo.
+
+A derived name is **lowercased silently** — two names differing only in case
+are one directory on a case-insensitive filesystem, so there is nothing there
+to guess at. A name you type is never rewritten.
+
+Two names cannot **nest**: `@acme` and `@acme/codestyle` cannot both exist,
+because the second would live inside the first's project directory, where
+removing `@acme` would take it along without mentioning it. That refusal cannot
+be waived.
+
+When a name is already taken, bitplane **refuses**, rather than quietly picking
+something else. If the project holding it came from the same URL, you already
+have that repo and there is nothing to do; if it came from a different one, you
+get the next free name:
 
 ```
-error[project_name_taken]: codestyle is already a project
+error[project_name_taken]: acme/codestyle is already a project
 
-remedy: acme-codestyle is free; re-run with --name acme-codestyle.
+remedy: acme/codestyle-2 is free; re-run with --name acme/codestyle-2.
 ```
 
 Two commands instead of one, deliberately. A default that renames itself behind
@@ -127,12 +149,15 @@ they were built with.
 
 ## The `@` sigil
 
-You write a project as `@api`. The `@` is **syntax, not part of the name** —
+You write a project as `@api`, or `@acme/codestyle`. The `@` is **syntax, not
+part of the name** —
 bitplane strips it when it reads your command line, and the bare name is what
 appears in `project.toml`, in `BITPLANE_PROJECT` and in every message.
 
 It is **required wherever a path would also be accepted**, which is `bp create`,
 `bp add` and `bp rm`, because that is the only place the two could be confused.
+The sigil is the whole of what keeps them apart: `@acme/codestyle` is a
+project, and bare `acme/codestyle` is a relative path.
 Everywhere else it is optional: `bp project show api` and
 `bp project show @api` are the same command. bitplane always prints a project
 with the sigil, so its output is unambiguous even where its input did not need

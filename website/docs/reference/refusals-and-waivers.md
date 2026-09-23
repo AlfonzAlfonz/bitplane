@@ -182,6 +182,31 @@ remedy: Destroy those planes, or run bp rm @codestyle in each, then try again.
 The whole value of an unwaivable refusal is that the way out is obvious, so the
 blocking planes are always listed **by id**.
 
+#### `project_name_nests`
+
+`@acme` and `@acme/codestyle` cannot both exist. The second would live inside
+the first's project directory, where
+[`bp project rm @acme`](./project/rm.md) would take it along without mentioning
+it and the registry walk, which stops at the first `project.toml`, would never
+have listed it.
+
+```
+error[project_name_nests]: acme/codestyle would sit inside the project acme
+
+remedy: Choose a name outside acme, or rename acme first.
+```
+
+The damage lands on a project you did not mention and are not looking at, which
+is [`project_in_use`](#project_in_use)'s test, so no consent given in that
+moment is informed. Raised by [`bp project add`](./project/add.md),
+[`bp project adopt`](./project/adopt.md) and
+[`bp project rename`](./project/rename.md), and in **both** directions:
+registering a project that would *contain* an existing one is the same refusal
+with the pair named the other way round.
+
+At `rename` the check excludes the project being renamed — a project cannot
+nest inside itself — so `bp project rename @acme acme/core` is a legal move.
+
 #### `plane_incomplete`
 
 A plane that was claimed and never finished being created. Repairing or running
@@ -274,15 +299,19 @@ exists. Re-running identically will never help.
 | `plane_id_in_use` | `auth-work is a claimed directory with no plane file` | `Run` `bp doctor` `to see what is in it, then remove the directory by hand.` |
 | `reserved_plane_id` | `bp- is reserved for generated plane ids` | `Choose an id that does not start with bp-.` |
 | `invalid_plane_id` | `Auth_Work is not a valid plane id` | `Use lowercase letters, digits and . _ - ; start with a letter or digit; 64 characters at most.` |
-| `project_name_taken` | `codestyle is already a project` | `acme-codestyle is free; re-run with --name acme-codestyle.` |
-| `derived_name_invalid` | `MyProject is not a name bitplane can derive a project from` | `Re-run with --name myproject.` |
+| `project_name_taken` | `acme/codestyle is already a project` | `acme/codestyle-2 is free; re-run with --name acme/codestyle-2.` |
+| `project_name_taken` | `acme/codestyle is already registered from that url` | *(none)* |
+| `project_name_nests` | `acme/codestyle would sit inside the project acme` | `Choose a name outside acme, or rename acme first.` |
+| `project_name_nests` | `acme would contain the project acme/codestyle` | `Choose a name that is not a parent of acme/codestyle, or rename acme/codestyle first.` |
+| `reserved_name_segment` | `acme/bin uses bin, which bitplane reserves inside a project directory` | `repo.git and bin are directories bp puts inside a project; use neither as a segment.` |
+| `derived_name_invalid` | `code+style is not a name bitplane can derive a project from` | `Re-run with --name <name>, using lowercase letters, digits and . _ - in each / -separated segment.` |
 | `reserved_path_segment` | `a worktree of this repo would land at .bitplane/api, which is reserved` | `Move the repository out of a directory called .bitplane.` |
 | `duplicate_member` | `@api is already a member of bp-a3f9c2e1` | `Run` `bp rm @api`, `then` `bp add @api:<branch>.` |
 | `duplicate_member` | `/Users/alfonz/projects/api is named twice` | `A plane holds at most one worktree per repository; name it once.` |
 | `same_repository` | `/Users/alfonz/projects/api/../side is a worktree of the same repository as /Users/alfonz/projects/api` | `A plane holds at most one worktree per repository; name one of them.` |
 | `member_path_collision` | `/Users/alfonz/one/repos/api and /Users/alfonz/two/repos/api would both land at repos/api` | `A plane holds one worktree per derived path; put one of them in another plane.` |
 | `member_not_a_repository` | `/Users/alfonz/scratch is not a git repository` | `Point at a directory that is a git repository, or create one with git init.` |
-| `invalid_project_name` | `Codestyle is not a valid project name` | `Use lowercase letters, digits and . _ - ; start with a letter or digit.` |
+| `invalid_project_name` | `Codestyle is not a valid project name` | `Use lowercase letters, digits and . _ - in each / -separated segment; start each one with a letter or digit.` |
 | `branch_unspecified` | `no branch given for @api` | `Pass -b <branch>, or write the member as @api:<branch>.` |
 | `base_branch_unresolved` | `@api has no default branch to cut feat-login from` | `Set one with git remote set-head origin <branch>, or pass --existing-branch to use a branch that is already there.` |
 | `branch_intent_requires_fetch` | `--no-fetch cannot be combined with the default branch intent` | `Drop --no-fetch, or pass --new-branch to create feat-x deliberately.` |
@@ -297,10 +326,19 @@ exists. Re-running identically will never help.
 
 `derived_name_invalid` is distinct from `invalid_project_name` because you did
 not type the name — the URL did. Reciting the charset at someone who never chose
-a name is no help, so the remedy names
-[`--name`](./project/add.md#flags) and the nearest name the charset will take.
-`bp` never applies that fold on your behalf: a default that renames itself
-behind your back is the same fault as one that disambiguates itself.
+a name is no help, so the remedy names [`--name`](./project/add.md#flags). It
+names **no suggestion**: capitals are folded away before the check, so what
+reaches this is a URL the charset genuinely cannot take, and that is a URL worth
+looking at rather than papering over.
+
+The two `project_name_taken` messages are two different situations. The same
+source URL means the repo is **already registered** — there is nothing to fix,
+so there is no remedy; a different one is a real collision, and the remedy
+carries the next free name, suffixed on the **last segment**.
+
+`project_name_nests` and `reserved_name_segment` are both about names a nested
+registry cannot hold. See
+[the unwaivable ones](#project_name_nests) for why nesting has no waiver.
 
 The three `plane_id_in_use` messages are three different things `bp` found at
 the path. `create` stats the one path it already knows and classifies it, so the

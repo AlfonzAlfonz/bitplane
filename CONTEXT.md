@@ -110,7 +110,7 @@ A `/`-separated **path of segments**, each lowercase `[a-z0-9][a-z0-9._-]*`, uni
 Two derivation rules, which are one rule — *use the namespace when there is one*:
 
 - An **owned project** takes the **full forge path after the host**, minus the transport and a trailing `.git`: `git@gitlab.com:acme/platform/tooling/codestyle.git` becomes `@acme/platform/tooling/codestyle`. A forge path is a namespace — stable, globally unique, and the thing whose absence made flat names collide. The host is not part of the name, so two forges sharing a path collide and fall to the ordinary refusal.
-- An **adopted project** keeps the **last segment**. A filesystem path is an accident of where a home directory sits; `@users/alfonz/projects/bitplane` names the machine, not the project.
+- An **adopted project** keeps the **last segment**. A filesystem path is an accident of where a home directory sits; `@users/alfonz/projects/bitplane` names the machine, not the project. So does an **owned project whose url names no host** — a bare local path, or a `file://` url — since that is the same accident wearing a git url's clothes.
 
 A **derived** name is lowercased silently — a *normalisation*, not a guess, since two names differing only in case are the same directory on a case-insensitive filesystem. It never applies to `--name`, which is the user's stated intent, and parsing stays strict everywhere else, so a capital in a hand-edited file is a parse error and never a silent rewrite. A derived name still invalid after lowercasing fails naming the bad segment, with no suggestion.
 

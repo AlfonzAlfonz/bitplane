@@ -110,6 +110,14 @@ beginning `gitlab.com/` for everybody else.
 
 `bp project adopt ~/projects/bitplane` still registers `@bitplane`.
 
+So does an **owned** project whose url names no host. A bare local path is a
+git url — `bp project add /srv/git/acme/codestyle.git` works, and it is what
+every fixture in the test suite uses — and `file:///srv/…` is one too. Neither
+has a host to strip, and reading "the full path after the host" literally there
+would register `@srv/git/acme/codestyle`. The rule below is what decides it,
+not the url's shape: there is no namespace in a local path, so there is nothing
+to keep.
+
 The asymmetry is deliberate and it is not a convenience. **A forge path is a
 namespace**: stable, globally unique, agreed on by everyone who clones the
 repo, and the very thing whose absence made the name collide. **A filesystem
@@ -224,7 +232,8 @@ cannot be moved inside itself — so it goes via a temporary sibling under the
 projects directory, which changes the number of syscalls and nothing else about
 the converging order.
 
-**A reserved-segment refusal** for `repo.git` and `bin`, per the charset above.
+**A reserved-segment refusal** — `reserved_name_segment` — for `repo.git` and
+`bin`, per the charset above.
 
 **`project_name_taken` gains the same-url case**, per the ladder above.
 

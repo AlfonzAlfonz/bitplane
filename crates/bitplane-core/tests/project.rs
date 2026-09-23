@@ -160,19 +160,212 @@ fn a_taken_default_name_is_refused_with_a_suggestion_and_never_disambiguated() {
         error,
         EngineError::ProjectNameTaken {
             name: "codestyle".to_owned(),
-            suggestion: Some("other-codestyle".to_owned()),
+            same_source: false,
+            suggestion: Some("codestyle-2".to_owned()),
         }
     );
     assert_eq!(error.exit_code(), ExitCode::Usage);
     assert_eq!(error.to_string(), "codestyle is already a project");
     assert_eq!(
         error.envelope().remedy.as_deref(),
-        Some("other-codestyle is free; re-run with --name other-codestyle.")
+        Some("codestyle-2 is free; re-run with --name codestyle-2.")
     );
     assert_eq!(
         host.list().unwrap().projects.len(),
         1,
         "the second add must not have registered anything"
+    );
+}
+
+#[test]
+fn re_running_one_add_reports_the_repo_as_already_registered_and_offers_no_copy() {
+    let host = Host::new("project-add-again");
+    let forge = host.forge("codestyle");
+
+    host.add(&forge, None).unwrap();
+    let error = host.add(&forge, None).unwrap_err();
+
+    assert_eq!(
+        error,
+        EngineError::ProjectNameTaken {
+            name: "codestyle".to_owned(),
+            same_source: true,
+            suggestion: None,
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "codestyle is already registered from that url"
+    );
+    assert_eq!(
+        error.envelope().remedy,
+        None,
+        "offering codestyle-2 would propose a second copy of a repo they have"
+    );
+}
+
+#[test]
+fn a_nested_name_registers_at_a_nested_directory_and_the_directory_is_still_the_name() {
+    let host = Host::new("project-add-nested");
+    let forge = host.forge("codestyle");
+
+    let added = host
+        .add(&forge, Some("acme/platform/tooling/codestyle"))
+        .unwrap();
+
+    assert_eq!(added.name.as_str(), "acme/platform/tooling/codestyle");
+    assert_eq!(
+        added.directory,
+        host.projects().join("acme/platform/tooling/codestyle")
+    );
+    assert!(
+        host.source_repo("acme/platform/tooling/codestyle").is_dir(),
+        "the repo bitplane built is inside the nested directory"
+    );
+    assert_eq!(
+        host.project_file("acme/platform/tooling/codestyle")
+            .name
+            .as_str(),
+        "acme/platform/tooling/codestyle"
+    );
+
+    assert_eq!(
+        host.list()
+            .unwrap()
+            .projects
+            .iter()
+            .map(|row| row.project.to_string())
+            .collect::<Vec<String>>(),
+        ["acme/platform/tooling/codestyle"],
+        "the walk found it, by its full name, and listed nothing above it"
+    );
+}
+
+#[test]
+fn an_intermediate_directory_is_not_a_project_and_a_leftover_costs_no_object_store_scan() {
+    let host = Host::new("project-list-tree");
+    host.add(&host.forge("api"), Some("acme/api")).unwrap();
+    host.add(&host.forge("web"), Some("acme/platform/web"))
+        .unwrap();
+
+    // What an interrupted add leaves, one level down: a bare repo and no
+    // registration. A walk that only stopped at registrations would read it.
+    let leftover = host.projects().join("acme/platform/half-added");
+    fs::create_dir_all(leftover.join(REPO_DIR_NAME).join("objects")).unwrap();
+    fs::write(
+        leftover.join(REPO_DIR_NAME).join("objects").join("decoy"),
+        "",
+    )
+    .unwrap();
+
+    let listing = host.list().unwrap();
+
+    assert_eq!(
+        listing
+            .projects
+            .iter()
+            .map(|row| row.project.to_string())
+            .collect::<Vec<String>>(),
+        ["acme/api", "acme/platform/web"],
+        "acme and acme/platform hold no project file, so neither is a project"
+    );
+    assert!(!listing.has_unreadable());
+}
+
+#[test]
+fn the_walk_never_descends_into_a_project_or_into_the_directories_bitplane_owns() {
+    let host = Host::new("project-list-guards");
+    host.add(&host.forge("api"), Some("acme/api")).unwrap();
+
+    // Three decoys, each a directory holding a project file: inside a
+    // registered project, inside its source repo, and inside its bin.
+    for inside in ["inner", "repo.git/inner", "bin/inner"] {
+        let decoy = host.projects().join("acme/api").join(inside);
+        fs::create_dir_all(&decoy).unwrap();
+        fs::write(
+            decoy.join("project.toml"),
+            "version = 1\nname = \"x\"\n\n[source]\ntype = \"owned\"\nurl = \"x\"\n",
+        )
+        .unwrap();
+    }
+
+    assert_eq!(
+        host.list()
+            .unwrap()
+            .projects
+            .iter()
+            .map(|row| row.project.to_string())
+            .collect::<Vec<String>>(),
+        ["acme/api"],
+        "a project's own contents are not more projects"
+    );
+}
+
+#[test]
+fn a_name_that_would_nest_inside_a_project_is_refused_and_nothing_is_created() {
+    let host = Host::new("project-add-nests-inside");
+    host.add(&host.forge("acme"), Some("acme")).unwrap();
+
+    let error = host
+        .add(&host.forge("codestyle"), Some("acme/codestyle"))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        EngineError::ProjectNameNests {
+            name: "acme/codestyle".to_owned(),
+            blocker: "acme".to_owned(),
+        }
+    );
+    assert_eq!(error.exit_code(), ExitCode::Usage);
+    assert!(
+        !host.projects().join("acme/codestyle").exists(),
+        "the refusal lands before the directory is made"
+    );
+}
+
+#[test]
+fn a_name_that_would_contain_a_project_is_the_same_refusal_the_other_way_round() {
+    let host = Host::new("project-add-nests-around");
+    host.add(&host.forge("codestyle"), Some("acme/codestyle"))
+        .unwrap();
+
+    let error = host.add(&host.forge("acme"), Some("acme")).unwrap_err();
+
+    assert_eq!(
+        error,
+        EngineError::ProjectNameNests {
+            name: "acme".to_owned(),
+            blocker: "acme/codestyle".to_owned(),
+        }
+    );
+    assert_eq!(
+        error.envelope().remedy.as_deref(),
+        Some(
+            "Choose a name that is not a parent of acme/codestyle, or rename acme/codestyle first."
+        )
+    );
+}
+
+#[test]
+fn a_reserved_segment_is_refused_wherever_it_appears_in_a_name() {
+    let host = Host::new("project-add-reserved-segment");
+
+    let error = host
+        .add(&host.forge("codestyle"), Some("acme/bin"))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        EngineError::ReservedNameSegment {
+            name: "acme/bin".to_owned(),
+            segment: "bin".to_owned(),
+        }
+    );
+    assert_eq!(error.exit_code(), ExitCode::Usage);
+    assert!(
+        !host.projects().join("acme/bin").exists(),
+        "a project the walk could never see is one that is never made"
     );
 }
 

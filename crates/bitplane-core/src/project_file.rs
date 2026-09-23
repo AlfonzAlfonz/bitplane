@@ -190,61 +190,46 @@ impl ProjectSource {
         })
     }
 
-    /// The name this source would take if the user named none: the last
-    /// segment of its path.
-    pub fn default_name(&self) -> Result<ProjectName, EngineError> {
-        let segments = self.segments();
-
-        ProjectName::parse(segments.last().copied().unwrap_or_default())
-    }
-
-    /// The last segment of the source's path, whether or not it is a project
-    /// name. What a failed derivation names back to the user.
-    pub fn last_segment(&self) -> String {
-        self.segments()
-            .last()
-            .copied()
-            .unwrap_or_default()
-            .to_owned()
-    }
-
-    /// The nearest project name to [`ProjectSource::default_name`]: lowercased,
-    /// with everything outside the charset folded to `-`.
+    /// The name this source would take if the user named none, and the segment
+    /// that stopped it where there is none.
     ///
-    /// **Offered for the user to type, never applied on their behalf** — a
-    /// forge that names a repo `MyProject` has not told bitplane what the
-    /// project should be called, and guessing is the silent disambiguation the
-    /// design refuses everywhere else.
-    pub fn suggested_name(&self) -> Option<ProjectName> {
-        let folded: String = self
-            .last_segment()
-            .chars()
-            .map(|character| match character {
-                'A'..='Z' => character.to_ascii_lowercase(),
-                'a'..='z' | '0'..='9' | '.' | '_' | '-' => character,
-                _ => '-',
-            })
+    /// **One rule, applied twice: use the namespace when there is one.** A
+    /// source that names a host carries a forge path, which *is* a namespace —
+    /// stable, globally unique, agreed on by everyone who clones the repo — so
+    /// the whole path after the host becomes the name. A source that names no
+    /// host is a filesystem path, which is an accident of where a home
+    /// directory happens to sit, so only its last segment does (ADR-0009).
+    ///
+    /// The derived name is **lowercased silently**. That is a normalisation
+    /// rather than a guess: two names differing only in case are one directory
+    /// on a case-insensitive filesystem, so there is nothing here to choose
+    /// between. It never reaches `--name`, which is the user's own words.
+    pub fn default_name(&self) -> Result<ProjectName, EngineError> {
+        let segments = self.name_segments();
+        let lowercased: Vec<String> = segments
+            .iter()
+            .map(|segment| segment.to_ascii_lowercase())
             .collect();
 
-        let tidied = folded
-            .split('-')
-            .filter(|run| !run.is_empty())
-            .collect::<Vec<&str>>()
-            .join("-");
-
-        ProjectName::parse(tidied.trim_start_matches(['.', '_'])).ok()
+        ProjectName::parse(&lowercased.join("/")).map_err(|why| EngineError::DerivedNameInvalid {
+            derived: at_fault(&segments, &why),
+        })
     }
 
-    /// The name to suggest when [`ProjectSource::default_name`] is taken —
-    /// `acme-codestyle` for `acme/codestyle`. Absent where there is no segment
-    /// before the last, or where joining the two is not a project name.
-    pub fn qualified_name(&self) -> Option<ProjectName> {
-        let segments = self.segments();
-        let [.., parent, last] = segments.as_slice() else {
-            return None;
-        };
-
-        ProjectName::parse(&format!("{parent}-{last}")).ok()
+    /// Whether two sources are the same repository, for the "you already have
+    /// this" arm of `project_name_taken`.
+    ///
+    /// A url compared **as git would fetch it**: `…/codestyle.git` and
+    /// `…/codestyle` are one remote, and somebody re-running an `add` with the
+    /// suffix dropped has not asked for a second copy of it. An adopted path is
+    /// compared as it is — bitplane canonicalises those on the way in.
+    pub fn same_repo_as(&self, other: &ProjectSource) -> bool {
+        match (self, other) {
+            (ProjectSource::Owned { url: ours }, ProjectSource::Owned { url: theirs }) => {
+                fetched_alike(ours) == fetched_alike(theirs)
+            }
+            (left, right) => left == right,
+        }
     }
 
     /// Whether bitplane built this source repo, and therefore owns its refs and
@@ -270,6 +255,38 @@ impl ProjectSource {
         };
 
         path_segments(path)
+    }
+
+    /// The segments a default name is built from: all of them behind a host,
+    /// the last one where there is no host.
+    fn name_segments(&self) -> Vec<&str> {
+        let segments = self.segments();
+
+        match self.names_a_host() {
+            true => segments,
+            false => segments.last().copied().into_iter().collect(),
+        }
+    }
+
+    /// Whether the source spells a host — the scp-like `user@host:path`, or a
+    /// `scheme://host/path` with a host in it.
+    ///
+    /// An **adopted** source never does; neither does a bare local path handed
+    /// to `project add`, which is a git URL git will happily fetch from and a
+    /// namespace nobody else shares.
+    fn names_a_host(&self) -> bool {
+        let ProjectSource::Owned { url } = self else {
+            return false;
+        };
+
+        match url.split_once("://") {
+            Some((_, after_scheme)) => !after_scheme.starts_with('/'),
+            None => match (url.find(':'), url.find('/')) {
+                (Some(colon), None) => colon > 0,
+                (Some(colon), Some(slash)) => colon < slash && colon > 0,
+                _ => false,
+            },
+        }
     }
 
     /// The `type`, and the one payload key that goes with it.
@@ -526,6 +543,40 @@ fn path_segments(path: &str) -> Vec<&str> {
         .split('/')
         .filter(|segment| !segment.is_empty() && *segment != ".")
         .collect()
+}
+
+/// What a failed derivation names back to the user.
+///
+/// The **segment** at fault wherever there is one: the one off the charset, or
+/// the one bitplane reserves. Where every segment was fine and the name was not
+/// — a path over the length bound, or an empty source — the whole derived name,
+/// because no single segment is the thing to look at.
+///
+/// Named **as the URL spelled it**, capitals and all, so it can be found in the
+/// URL the user typed.
+fn at_fault(segments: &[&str], why: &EngineError) -> String {
+    let named = match why {
+        EngineError::ReservedNameSegment { segment, .. } => segments
+            .iter()
+            .find(|candidate| candidate.to_ascii_lowercase() == *segment)
+            .copied(),
+        _ => segments
+            .iter()
+            .find(|segment| !ProjectName::is_segment(&segment.to_ascii_lowercase()))
+            .copied(),
+    };
+
+    named
+        .map(str::to_owned)
+        .unwrap_or_else(|| segments.join("/"))
+}
+
+/// A url reduced to what git would fetch from: no trailing slashes, no trailing
+/// `.git`.
+fn fetched_alike(url: &str) -> &str {
+    let trimmed = url.trim_end_matches('/');
+
+    trimmed.strip_suffix(".git").unwrap_or(trimmed)
 }
 
 fn parse_error(path: &Path, message: impl Into<String>) -> EngineError {
@@ -930,27 +981,16 @@ mod tests {
     }
 
     #[test]
-    fn the_default_name_is_the_last_segment_and_the_suggestion_qualifies_it() {
-        let source = ProjectSource::Owned {
-            url: "git@gitlab.com:acme/codestyle.git".to_owned(),
-        };
-
-        assert_eq!(source.default_name().unwrap().as_str(), "codestyle");
-        assert_eq!(
-            source.qualified_name().map(|name| name.to_string()),
-            Some("acme-codestyle".to_owned())
-        );
-    }
-
-    #[test]
-    fn a_name_the_charset_will_not_take_is_folded_into_one_to_suggest() {
+    fn a_source_that_names_a_host_takes_the_whole_path_after_it() {
         let cases = [
-            ("git@gitlab.com:acme/MyProject.git", Some("myproject")),
-            ("git@gitlab.com:acme/My Project.git", Some("my-project")),
-            ("git@gitlab.com:acme/.hidden.git", Some("hidden")),
-            ("git@gitlab.com:acme/a--b.git", Some("a-b")),
-            ("git@gitlab.com:acme/v1.0.git", Some("v1.0")),
-            ("git@gitlab.com:acme/---.git", None),
+            ("git@gitlab.com:acme/codestyle.git", "acme/codestyle"),
+            (
+                "git@gitlab.com:acme/platform/tooling/codestyle.git",
+                "acme/platform/tooling/codestyle",
+            ),
+            ("https://github.com/acme/codestyle.git", "acme/codestyle"),
+            ("ssh://git@gitlab.com/acme/api/", "acme/api"),
+            ("git@gitlab.com:codestyle.git", "codestyle"),
         ];
 
         for (url, expected) in cases {
@@ -959,11 +999,55 @@ mod tests {
             };
 
             assert_eq!(
-                source.suggested_name().map(|name| name.to_string()),
-                expected.map(str::to_owned),
+                source.default_name().unwrap().as_str(),
+                expected,
                 "for {url}"
             );
         }
+    }
+
+    #[test]
+    fn a_source_that_names_no_host_keeps_its_last_segment() {
+        // The same rule, not an exception to it: a forge path is a namespace
+        // everyone who clones the repo agrees on, and a filesystem path is an
+        // accident of where a home directory sits.
+        let cases: [(ProjectSource, &str); 3] = [
+            (
+                ProjectSource::Adopted {
+                    path: PathBuf::from("/Users/alfonz/projects/bitplane"),
+                },
+                "bitplane",
+            ),
+            (
+                ProjectSource::Owned {
+                    url: "/srv/git/acme/codestyle.git".to_owned(),
+                },
+                "codestyle",
+            ),
+            (
+                ProjectSource::Owned {
+                    url: "file:///srv/git/acme/codestyle.git".to_owned(),
+                },
+                "codestyle",
+            ),
+        ];
+
+        for (source, expected) in cases {
+            assert_eq!(
+                source.default_name().unwrap().as_str(),
+                expected,
+                "for {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_name_is_lowercased_and_nothing_else_is_guessed_at() {
+        let source = ProjectSource::Owned {
+            url: "git@gitlab.com:Acme/MyProject.git".to_owned(),
+        };
+
+        assert_eq!(source.default_name().unwrap().as_str(), "acme/myproject");
     }
 
     #[test]
@@ -986,27 +1070,71 @@ mod tests {
     }
 
     #[test]
-    fn a_source_whose_last_segment_is_not_a_project_name_has_no_default() {
+    fn a_derivation_that_fails_names_the_part_at_fault_and_offers_nothing() {
+        let cases = [
+            // The segment off the charset, whichever one it is.
+            ("git@gitlab.com:acme/My Project.git", "My Project"),
+            ("git@gitlab.com:acme/code+style.git", "code+style"),
+            ("git@gitlab.com:-acme/codestyle.git", "-acme"),
+            ("git@gitlab.com:acme/.hidden.git", ".hidden"),
+            // The segment bitplane reserves, and not the last one.
+            ("git@gitlab.com:acme/bin.git", "bin"),
+            ("git@gitlab.com:acme/Bin/api.git", "Bin"),
+            ("git@gitlab.com:acme/repo.git/api.git", "repo.git"),
+        ];
+
+        for (url, at_fault) in cases {
+            let source = ProjectSource::Owned {
+                url: url.to_owned(),
+            };
+
+            assert_eq!(
+                source.default_name(),
+                Err(EngineError::DerivedNameInvalid {
+                    derived: at_fault.to_owned(),
+                }),
+                "for {url}, named as the URL spelled it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_name_that_is_only_too_long_names_the_whole_name() {
+        let deep: Vec<String> = (0..40).map(|ordinal| format!("group{ordinal}")).collect();
         let source = ProjectSource::Owned {
-            url: "git@gitlab.com:acme/Codestyle.git".to_owned(),
+            url: format!("git@gitlab.com:{}.git", deep.join("/")),
         };
 
-        assert!(
-            matches!(
-                source.default_name(),
-                Err(EngineError::InvalidProjectName { .. })
-            ),
-            "an uppercase name is the user's to supply with --name"
+        assert_eq!(
+            source.default_name(),
+            Err(EngineError::DerivedNameInvalid {
+                derived: deep.join("/"),
+            }),
+            "no one segment is the thing to look at, so none is blamed"
         );
     }
 
     #[test]
-    fn a_source_with_one_segment_has_nothing_to_qualify_it_with() {
-        let source = ProjectSource::Owned {
-            url: "git@gitlab.com:codestyle.git".to_owned(),
+    fn a_url_and_the_same_url_without_its_git_suffix_are_one_repository() {
+        let plain = ProjectSource::Owned {
+            url: "git@gitlab.com:acme/codestyle".to_owned(),
         };
 
-        assert_eq!(source.qualified_name(), None);
+        assert!(plain.same_repo_as(&ProjectSource::Owned {
+            url: "git@gitlab.com:acme/codestyle.git".to_owned(),
+        }));
+        assert!(plain.same_repo_as(&ProjectSource::Owned {
+            url: "git@gitlab.com:acme/codestyle/".to_owned(),
+        }));
+        assert!(
+            !plain.same_repo_as(&ProjectSource::Owned {
+                url: "git@github.com:acme/codestyle.git".to_owned(),
+            }),
+            "the host is not part of the name, and is part of the repository"
+        );
+        assert!(!plain.same_repo_as(&ProjectSource::Adopted {
+            path: PathBuf::from("/Users/alfonz/projects/codestyle"),
+        }));
     }
 
     #[test]

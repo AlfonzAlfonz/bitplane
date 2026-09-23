@@ -74,6 +74,17 @@ pub enum EngineError {
     PlaneIdInUse { id: String, found: Occupant },
     /// A string that is not a project name, where one was required.
     InvalidProjectName { name: String },
+    /// A project name using `repo.git` or `bin` as a segment — both directories
+    /// bitplane puts *inside* a project, and both skipped by name by the walk
+    /// that finds projects (ADR-0009).
+    ReservedNameSegment { name: String, segment: String },
+    /// A project name that would live inside another project's directory, or
+    /// contain one. Unwaivable: the damage lands on a project the user is not
+    /// looking at.
+    ///
+    /// The direction is read off the two names rather than carried, because a
+    /// blocker is either a prefix of the name or has it as one.
+    ProjectNameNests { name: String, blocker: String },
     /// A member's derived worktree path would start with `.bitplane`.
     ReservedPathSegment { path: String },
     /// Two members of one plane resolving to the same thing. A plane holds at
@@ -110,20 +121,31 @@ pub enum EngineError {
     /// than an error naming the conflict. `suggestion` is absent where the user
     /// chose the name themselves — there is nothing to suggest when the name
     /// was not derived.
+    ///
+    /// `same_source` is the re-run case: the registered project came from the
+    /// **same url**, so this is not a collision at all but a repo that is
+    /// already registered. There is nothing to suggest and nothing to do, and
+    /// offering `codestyle-2` to somebody re-running one command would propose
+    /// a second copy of a repo they already have (ADR-0009).
     ProjectNameTaken {
         name: String,
+        same_source: bool,
         suggestion: Option<String>,
     },
-    /// The name derived from a source is not a project name.
+    /// The name derived from a source is not a project name, naming the part of
+    /// it that is not: the offending segment, or the whole derived name where
+    /// no single segment is at fault.
     ///
     /// Distinct from [`EngineError::InvalidProjectName`] because the user did
     /// not type this one — the URL did — so the remedy names the flag that
     /// overrides it rather than reciting the charset at someone who never
     /// chose a name.
-    DerivedNameInvalid {
-        derived: String,
-        suggestion: Option<String>,
-    },
+    ///
+    /// **No suggestion.** ADR-0007's fold-everything-to-`-` guess went with the
+    /// flat names that motivated it: now that the default is the forge's own
+    /// path, a URL that cannot produce a name is a URL worth looking at rather
+    /// than papering over.
+    DerivedNameInvalid { derived: String },
     /// A `project_add` that did not finish. **The registration is unwound and
     /// the object store is kept**: `init --bare` + `fetch` is resumable in a
     /// way `clone` is not, so a partial object store is reused by the next
@@ -337,6 +359,8 @@ impl EngineError {
             EngineError::InvalidPlaneId { .. } => "invalid_plane_id",
             EngineError::PlaneIdInUse { .. } => "plane_id_in_use",
             EngineError::InvalidProjectName { .. } => "invalid_project_name",
+            EngineError::ReservedNameSegment { .. } => "reserved_name_segment",
+            EngineError::ProjectNameNests { .. } => "project_name_nests",
             EngineError::ReservedPathSegment { .. } => "reserved_path_segment",
             EngineError::DuplicateMember { .. } => "duplicate_member",
             EngineError::SameRepository { .. } => "same_repository",
@@ -385,6 +409,8 @@ impl EngineError {
             | EngineError::InvalidPlaneId { .. }
             | EngineError::PlaneIdInUse { .. }
             | EngineError::InvalidProjectName { .. }
+            | EngineError::ReservedNameSegment { .. }
+            | EngineError::ProjectNameNests { .. }
             | EngineError::ReservedPathSegment { .. }
             | EngineError::DuplicateMember { .. }
             | EngineError::SameRepository { .. }
@@ -544,9 +570,23 @@ impl EngineError {
                 }
             }),
             EngineError::InvalidProjectName { .. } => Some(
-                "Use lowercase letters, digits and . _ - ; start with a letter or digit."
+                "Use lowercase letters, digits and . _ - in each / -separated segment; \
+                 start each one with a letter or digit."
                     .to_owned(),
             ),
+            EngineError::ReservedNameSegment { .. } => Some(
+                "repo.git and bin are directories bp puts inside a project; \
+                 use neither as a segment."
+                    .to_owned(),
+            ),
+            // Two directions, one refusal, and the remedy has to name the way
+            // out of the one the user is actually in.
+            EngineError::ProjectNameNests { name, blocker } => Some(match nested(name, blocker) {
+                true => format!("Choose a name outside {blocker}, or rename {blocker} first."),
+                false => format!(
+                    "Choose a name that is not a parent of {blocker}, or rename {blocker} first."
+                ),
+            }),
             EngineError::ReservedPathSegment { .. } => {
                 Some("Move the repository out of a directory called .bitplane.".to_owned())
             }
@@ -572,16 +612,24 @@ impl EngineError {
                     "cd into a plane, or name one with --plane.".to_owned()
                 }
             }),
-            EngineError::ProjectNameTaken { suggestion, .. } => Some(match suggestion {
-                Some(free) => format!("{free} is free; re-run with --name {free}."),
-                None => "Choose another name, or remove the project holding it.".to_owned(),
-            }),
-            EngineError::DerivedNameInvalid { suggestion, .. } => Some(match suggestion {
-                Some(free) => format!("Re-run with --name {free}."),
-                None => "Re-run with --name <name>, using lowercase letters, digits \
-                         and . _ - ."
+            // None where the same url is already registered: there is nothing
+            // to fix, and a remedy would invent work for somebody who has none.
+            EngineError::ProjectNameTaken {
+                same_source,
+                suggestion,
+                ..
+            } => match (same_source, suggestion) {
+                (true, _) => None,
+                (false, Some(free)) => Some(format!("{free} is free; re-run with --name {free}.")),
+                (false, None) => {
+                    Some("Choose another name, or remove the project holding it.".to_owned())
+                }
+            },
+            EngineError::DerivedNameInvalid { .. } => Some(
+                "Re-run with --name <name>, using lowercase letters, digits and . _ - \
+                 in each / -separated segment."
                     .to_owned(),
-            }),
+            ),
             EngineError::ProjectAddAborted { kept, .. } => Some(match kept {
                 Some(kept) => format!(
                     "The objects fetched so far were kept at {}; \
@@ -745,6 +793,14 @@ impl fmt::Display for EngineError {
             EngineError::InvalidProjectName { name } => {
                 write!(f, "{name} is not a valid project name")
             }
+            EngineError::ReservedNameSegment { name, segment } => write!(
+                f,
+                "{name} uses {segment}, which bitplane reserves inside a project directory"
+            ),
+            EngineError::ProjectNameNests { name, blocker } => match nested(name, blocker) {
+                true => write!(f, "{name} would sit inside the project {blocker}"),
+                false => write!(f, "{name} would contain the project {blocker}"),
+            },
             EngineError::ReservedPathSegment { path } => write!(
                 f,
                 "a worktree of this repo would land at {path}, which is reserved"
@@ -771,10 +827,13 @@ impl fmt::Display for EngineError {
                     write!(f, "no plane contains {}", path.display())
                 }
             },
-            EngineError::ProjectNameTaken { name, .. } => {
-                write!(f, "{name} is already a project")
-            }
-            EngineError::DerivedNameInvalid { derived, .. } => {
+            EngineError::ProjectNameTaken {
+                name, same_source, ..
+            } => match same_source {
+                true => write!(f, "{name} is already registered from that url"),
+                false => write!(f, "{name} is already a project"),
+            },
+            EngineError::DerivedNameInvalid { derived } => {
                 write!(
                     f,
                     "{derived} is not a name bitplane can derive a project from"
@@ -972,6 +1031,15 @@ fn failures(outcomes: &[ScriptOutcome]) -> Vec<&ScriptOutcome> {
 /// The one a message and a remedy speak about: the first that did not work.
 fn first_failure(outcomes: &[ScriptOutcome]) -> Option<&ScriptOutcome> {
     outcomes.iter().find(|outcome| !outcome.succeeded())
+}
+
+/// Which way a nesting collision runs: whether `name` would sit **inside**
+/// `blocker` rather than contain it.
+///
+/// Read off the two names rather than carried as a field, because one of them
+/// is always a prefix of the other — that is what nesting is.
+fn nested(name: &str, blocker: &str) -> bool {
+    name.starts_with(&format!("{blocker}/"))
 }
 
 /// `a`, `a and b`, `a, b and c` — the form the remedies are written in.

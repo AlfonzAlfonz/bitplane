@@ -73,7 +73,7 @@ fn a_taken_default_name_exits_2_with_the_suggestion_in_the_remedy() {
         concat!(
             "error[project_name_taken]: codestyle is already a project\n",
             "\n",
-            "remedy: other-codestyle is free; re-run with --name other-codestyle.\n",
+            "remedy: codestyle-2 is free; re-run with --name codestyle-2.\n",
         )
     );
 }
@@ -99,6 +99,83 @@ fn a_fetch_that_never_reached_the_forge_exits_1_naming_the_kept_objects() {
             host.projects().display()
         )),
         "got:\n{reported}"
+    );
+}
+
+#[test]
+fn a_nested_name_is_registered_listed_and_addressable_through_the_binary() {
+    let host = Host::new("cli-project-nested");
+    let forge = host.forge("codestyle");
+
+    let added = host.bp(&[
+        "project",
+        "add",
+        &forge.display().to_string(),
+        "--name",
+        "acme/platform/codestyle",
+    ]);
+
+    assert_eq!(added.status.code(), Some(0), "stderr: {}", stderr(&added));
+    assert_eq!(
+        stdout(&added),
+        format!(
+            concat!(
+                "@acme/platform/codestyle  owned\n",
+                "  source     {forge}\n",
+                "  directory  {projects}/acme/platform/codestyle\n",
+                "  default    main\n",
+            ),
+            forge = forge.display(),
+            projects = host.projects().display(),
+        )
+    );
+
+    let listed = host.bp(&["project", "list"]);
+    assert_eq!(
+        stdout(&listed),
+        format!(
+            "  @acme/platform/codestyle  owned  {forge}\n",
+            forge = forge.display()
+        ),
+        "the listing stays flat, with the full name"
+    );
+
+    let fetched = host.bp(&["project", "fetch", "@acme/platform/codestyle"]);
+    assert_eq!(
+        stdout(&fetched),
+        "  @acme/platform/codestyle  fetched  up to date\n",
+        "the sigil still addresses it, slashes and all"
+    );
+}
+
+#[test]
+fn a_name_that_would_nest_exits_2_naming_the_project_in_the_way() {
+    let host = Host::new("cli-project-nests");
+    host.bp(&[
+        "project",
+        "add",
+        &host.forge("acme").display().to_string(),
+        "--name",
+        "acme",
+    ]);
+
+    let run = host.bp(&[
+        "project",
+        "add",
+        &host.forge("codestyle").display().to_string(),
+        "--name",
+        "acme/codestyle",
+    ]);
+
+    assert_eq!(run.status.code(), Some(2));
+    assert_eq!(stdout(&run), "", "stdout carries results only");
+    assert_eq!(
+        stderr(&run),
+        concat!(
+            "error[project_name_nests]: acme/codestyle would sit inside the project acme\n",
+            "\n",
+            "remedy: Choose a name outside acme, or rename acme first.\n",
+        )
     );
 }
 

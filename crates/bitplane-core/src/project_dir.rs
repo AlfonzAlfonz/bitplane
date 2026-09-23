@@ -30,7 +30,7 @@ use crate::directories::Directories;
 use crate::error::EngineError;
 use crate::fsio::{self, write_atomically};
 use crate::lock::{self, Lock};
-use crate::member::{ProjectName, RESERVED_SEGMENT};
+use crate::member::{ProjectName, RESERVED_NAME_SEGMENTS, RESERVED_SEGMENT};
 use crate::project_file::{PROJECT_FILE_NAME, ProjectFile};
 
 /// The bare source repo of an **owned** project, inside its project directory.
@@ -80,13 +80,26 @@ impl ProjectDirectory {
         self.project_file().exists()
     }
 
-    /// Creates the directory, and the projects directory above it, if they are
-    /// not there. An existing directory is reused: a failed `project add` keeps
-    /// its objects for exactly that.
+    /// Creates the directory, and every intermediate directory a nested name
+    /// needs, if they are not there. An existing directory is reused: a failed
+    /// `project add` keeps its objects for exactly that.
+    ///
+    /// **Every level is synced, not just the projects directory.** A name is a
+    /// path, so `acme/platform/codestyle` creates two intermediate directories
+    /// on the way down, and a directory entry that is not synced is one a crash
+    /// can lose — taking the registration inside it with it.
     pub fn make(&self, directories: &Directories) -> Result<(), EngineError> {
         fs::create_dir_all(&self.path).map_err(|err| EngineError::io(&self.path, err))?;
 
-        fsio::sync_directory(directories.projects())
+        let mut level = directories.projects().to_path_buf();
+        fsio::sync_directory(&level)?;
+
+        for segment in self.name.as_str().split('/') {
+            level = level.join(segment);
+            fsio::sync_directory(&level)?;
+        }
+
+        Ok(())
     }
 
     /// Takes the project's lock, on the sentinel rather than on any file it
@@ -132,45 +145,58 @@ pub fn source_repo_of(directory: &ProjectDirectory, file: &ProjectFile) -> PathB
     }
 }
 
+/// How deep the walk below will go. A **runaway guard** against a symlink loop
+/// or a pathological tree, not a limit on a name — names are uncapped, and
+/// ADR-0009 records the gap between the two as a known hole.
+pub const MAX_WALK_DEPTH: usize = 16;
+
 /// Every project registered on this host, in name order.
 ///
-/// One `readdir`, and nothing else: a directory without a `project.toml` is not
-/// a project and is skipped, which is what makes the leftovers of an
+/// A name is a path, so the registry is a tree and this walk is recursive, with
+/// three guards:
+///
+/// - **it stops at the first directory holding a `project.toml`**, because a
+///   project's own contents are not more projects;
+/// - **it never descends into `.bitplane`, `repo.git`, `bin` or any
+///   dot-directory.** Load-bearing rather than tidy: an interrupted
+///   `project add` leaves a bare `repo.git` with **no** `project.toml`, so a
+///   walk that only stopped at registrations would read a git object store on
+///   every `bp project list`;
+/// - **it goes no deeper than [`MAX_WALK_DEPTH`]**.
+///
+/// What is left is what has always been true: a directory without a
+/// `project.toml` is not a project, which is what makes the leftovers of an
 /// interrupted `add` invisible here and `doctor`'s business instead.
 ///
 /// A projects directory that does not exist yet is an empty registry rather
 /// than a failure — nothing has been registered, which is not an error.
 pub fn registered(directories: &Directories) -> Result<Vec<ProjectDirectory>, EngineError> {
-    let entries = match fs::read_dir(directories.projects()) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(EngineError::io(directories.projects(), err)),
-    };
-
     let mut projects: Vec<ProjectDirectory> = Vec::new();
 
-    for entry in entries {
-        let entry = entry.map_err(|err| EngineError::io(directories.projects(), err))?;
-
-        // The directory name *is* the name, so a directory whose name is not a
-        // project name cannot be a project however it is furnished.
-        let Some(name) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| ProjectName::parse(name).ok())
-        else {
-            continue;
-        };
-
-        let project = ProjectDirectory::of(directories, name);
-        if project.is_registered() {
-            projects.push(project);
-        }
-    }
-
+    walk(
+        directories,
+        directories.projects(),
+        &mut Vec::new(),
+        &mut projects,
+    )?;
     projects.sort_by(|left, right| left.name.cmp(&right.name));
 
     Ok(projects)
+}
+
+/// The registered project `name` would nest with, in either direction, where
+/// there is one.
+///
+/// Reads the walk rather than the filesystem directly, so a name the walk
+/// cannot reach cannot block one either — the two answers stay the same answer.
+pub fn nesting_blocker(
+    directories: &Directories,
+    name: &ProjectName,
+) -> Result<Option<ProjectName>, EngineError> {
+    Ok(registered(directories)?
+        .into_iter()
+        .map(|project| project.name)
+        .find(|registered| registered.nests_with(name)))
 }
 
 /// The project called `name`, or [`EngineError::ProjectNotFound`].
@@ -187,6 +213,61 @@ pub fn find(
             name: name.to_string(),
         })
     }
+}
+
+/// One directory of the tree: a project, or somewhere projects might be.
+fn walk(
+    directories: &Directories,
+    at: &Path,
+    segments: &mut Vec<String>,
+    found: &mut Vec<ProjectDirectory>,
+) -> Result<(), EngineError> {
+    if segments.len() >= MAX_WALK_DEPTH {
+        return Ok(());
+    }
+
+    let entries = match fs::read_dir(at) {
+        Ok(entries) => entries,
+        // Nothing has been registered, which is not an error — and a directory
+        // that vanished mid-walk is the same non-answer.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(EngineError::io(at, err)),
+    };
+
+    for entry in entries {
+        let entry = entry.map_err(|err| EngineError::io(at, err))?;
+
+        // The directory name *is* the name, so a directory whose name is not a
+        // name segment cannot be part of one however it is furnished. That
+        // covers `.bitplane` and every other dot-directory without a rule of
+        // its own; `repo.git` and `bin` need one, which is why they are
+        // reserved as segments.
+        let Some(segment) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !ProjectName::is_segment(&segment) || RESERVED_NAME_SEGMENTS.contains(&segment.as_str())
+        {
+            continue;
+        }
+        if !entry.path().is_dir() {
+            continue;
+        }
+
+        segments.push(segment);
+
+        // A name too long to parse is not one the registry can answer for,
+        // whatever is in the directory.
+        match ProjectName::parse(&segments.join("/")) {
+            Ok(name) if ProjectDirectory::of(directories, name.clone()).is_registered() => {
+                found.push(ProjectDirectory::of(directories, name));
+            }
+            _ => walk(directories, &entry.path(), segments, found)?,
+        }
+
+        segments.pop();
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

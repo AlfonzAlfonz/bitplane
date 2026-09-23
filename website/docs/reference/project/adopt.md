@@ -62,6 +62,15 @@ later.
 
 Plus the [global flags](../global-flags.md#global-flags).
 
+A name is a `/`-separated path of segments, so `--name acme/codestyle` is a
+legal name and a nested project directory. **The default is still the last
+segment**, and the asymmetry with
+[`bp project add`](./add.md#flags) — which takes a URL's whole path — is the
+same rule seen twice: a forge path is a namespace everyone who clones the repo
+agrees on, and a path on your disk is an accident of where your home directory
+sits. `@users/alfonz/projects/bitplane` would name the machine, not the
+project.
+
 ## What it builds
 
 ```
@@ -120,7 +129,12 @@ remedy: Point at a directory git recognises, or create one with git init.
 
 ### The name is taken
 
-Exit `2`, [exactly as for `bp project add`](./add.md#the-default-name-is-taken).
+Exit `2`, [exactly as for `bp project add`](./add.md#the-repo-is-already-registered).
+
+### The name would nest inside another project
+
+Exit `2`, and unwaivable,
+[exactly as for `bp project add`](./add.md#the-name-would-nest-inside-another-project).
 
 ## Exit codes
 
@@ -128,7 +142,7 @@ Exit `2`, [exactly as for `bp project add`](./add.md#the-default-name-is-taken).
 | --- | --- |
 | `0` | the project is registered |
 | `1` | the write failed |
-| `2` | bad arguments, a taken or invalid name, a reserved path, or a path that is not a repo |
+| `2` | bad arguments, a name that is taken, nesting or invalid, a reserved path, or a path that is not a repo |
 | `4` | git is missing, unusable or older than 2.36 |
 | `5` | a lock could not be taken in time |
 | `130` | interrupted |

@@ -8,8 +8,13 @@
 //! and on screen — one spelling, so what a refusal prints is what you type
 //! back.
 //!
-//! The two arms cannot collide: a project name is `[a-z0-9][a-z0-9._-]*`, so it
-//! contains neither `@` nor `/`, and anything that is not one is read as a path.
+//! **The sigil, not the charset, is what keeps the two arms apart.** `@` is
+//! required wherever a path is also accepted, which is the only position where
+//! the ambiguity exists — so `@acme/codestyle` is a project and bare
+//! `acme/codestyle` is a path, even though a project name may now contain a
+//! `/` (ADR-0009). The charset argument that used to be given here — *a name
+//! contains no `/`, so the arms cannot collide* — was a second, accidental
+//! guarantee, and it is gone.
 
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
@@ -17,12 +22,31 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::EngineError;
+use crate::project_dir::{BIN_DIR_NAME, REPO_DIR_NAME};
 
 /// The path segment at a plane directory's root that belongs to bitplane.
 pub const RESERVED_SEGMENT: &str = ".bitplane";
 
 /// The sigil that marks the project arm of a [`MemberRef`].
 pub const PROJECT_SIGIL: char = '@';
+
+/// The longest a project name may be. A filesystem bound rather than a
+/// modelling opinion: **depth itself is uncapped**, because a forge nests as
+/// deeply as its groups do (ADR-0009).
+pub const MAX_PROJECT_NAME_LENGTH: usize = 128;
+
+/// Segments a project name may not use.
+///
+/// Both are legal under the segment charset and both name a directory bitplane
+/// puts *inside* a project directory, which the walk that finds projects skips
+/// **by name** — it must, because an interrupted `project add` leaves a
+/// `repo.git` with no `project.toml` behind it. So a project called `@acme/bin`
+/// would sit at a path nothing ever enters: registrable once and invisible
+/// thereafter. The reservation is what makes the skip list safe; without it the
+/// skip list is the thing that loses projects (ADR-0009).
+///
+/// `.bitplane` needs no entry here — a segment cannot start with `.`.
+pub const RESERVED_NAME_SEGMENTS: [&str; 2] = [REPO_DIR_NAME, BIN_DIR_NAME];
 
 /// What a member is a worktree of.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -34,8 +58,9 @@ pub enum MemberRef {
     Repo(PathBuf),
 }
 
-/// A project's flat, host-unique name. Never carries the sigil: the parser
-/// strips it once, at the read boundary, and it is a bare name everywhere after.
+/// A project's host-unique name: a `/`-separated **path of segments**, each on
+/// the charset ADR-0007 settled. Never carries the sigil — the parser strips it
+/// once, at the read boundary, and it is a bare name everywhere after.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct ProjectName(String);
@@ -77,20 +102,91 @@ impl MemberRef {
 }
 
 impl ProjectName {
-    /// Checks the charset. Takes the bare name: the sigil is stripped by
-    /// whoever read the line it came from.
+    /// Checks the charset, segment by segment. Takes the bare name: the sigil
+    /// is stripped by whoever read the line it came from.
+    ///
+    /// A leading or trailing `/`, an empty segment and a `.` or `..` segment
+    /// are all refused. They fall out of the charset rather than needing rules
+    /// of their own — a segment cannot start with `.` — but a name is a path on
+    /// disk now, and a path that can say `..` is a path that can escape.
+    ///
+    /// **Strict everywhere, always.** The silent lowercasing ADR-0009 allows
+    /// belongs to name *derivation* and happens before this is called, so a
+    /// hand-edited `project.toml` carrying a capital is still a parse error and
+    /// never a file bitplane quietly rewrites.
     pub fn parse(name: &str) -> Result<ProjectName, EngineError> {
-        if is_well_formed(name) {
-            Ok(ProjectName(name.to_owned()))
-        } else {
-            Err(EngineError::InvalidProjectName {
+        if name.is_empty() || name.chars().count() > MAX_PROJECT_NAME_LENGTH {
+            return Err(EngineError::InvalidProjectName {
                 name: name.to_owned(),
-            })
+            });
         }
+
+        for segment in name.split('/') {
+            if !ProjectName::is_segment(segment) {
+                return Err(EngineError::InvalidProjectName {
+                    name: name.to_owned(),
+                });
+            }
+
+            if RESERVED_NAME_SEGMENTS.contains(&segment) {
+                return Err(EngineError::ReservedNameSegment {
+                    name: name.to_owned(),
+                    segment: segment.to_owned(),
+                });
+            }
+        }
+
+        Ok(ProjectName(name.to_owned()))
+    }
+
+    /// Whether one path segment is on the charset. The walk that finds projects
+    /// asks this of a directory name before it descends.
+    pub fn is_segment(segment: &str) -> bool {
+        let mut characters = segment.chars();
+
+        let Some(first) = characters.next() else {
+            return false;
+        };
+
+        (first.is_ascii_lowercase() || first.is_ascii_digit())
+            && characters.all(|character| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || matches!(character, '.' | '_' | '-')
+            })
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The deepest segment — what the alternatives ladder suffixes, so that
+    /// `acme/api` yields `acme/api-2` rather than a *nested* `acme/api/2`.
+    pub fn last_segment(&self) -> &str {
+        self.0.rsplit('/').next().unwrap_or(&self.0)
+    }
+
+    /// This name with its last segment replaced, where the result is still a
+    /// name.
+    pub fn with_last_segment(&self, replacement: &str) -> Option<ProjectName> {
+        let head = match self.0.rfind('/') {
+            Some(slash) => &self.0[..=slash],
+            None => "",
+        };
+
+        ProjectName::parse(&format!("{head}{replacement}")).ok()
+    }
+
+    /// Whether one of these two names would live **inside** the other's project
+    /// directory, in either direction.
+    ///
+    /// Equal names are not nesting — that is `project_name_taken`, which has a
+    /// remedy. This has none: the inner project would be swept away by a
+    /// `project rm` of the outer one without being mentioned, and the walk,
+    /// stopping at the first `project.toml`, would never have listed it
+    /// (ADR-0009).
+    pub fn nests_with(&self, other: &ProjectName) -> bool {
+        inside(&self.0, &other.0) || inside(&other.0, &self.0)
     }
 }
 
@@ -271,19 +367,12 @@ impl TryFrom<String> for ProjectName {
     }
 }
 
-fn is_well_formed(name: &str) -> bool {
-    let mut characters = name.chars();
-
-    let Some(first) = characters.next() else {
-        return false;
-    };
-
-    (first.is_ascii_lowercase() || first.is_ascii_digit())
-        && characters.all(|character| {
-            character.is_ascii_lowercase()
-                || character.is_ascii_digit()
-                || matches!(character, '.' | '_' | '-')
-        })
+/// Whether `inner` sits below `outer` — on a segment boundary, so `acme/apiary`
+/// is not inside `acme/api`.
+fn inside(inner: &str, outer: &str) -> bool {
+    inner
+        .strip_prefix(outer)
+        .is_some_and(|rest| rest.starts_with('/'))
 }
 
 #[cfg(test)]
@@ -317,7 +406,7 @@ mod tests {
 
     #[test]
     fn a_sigil_on_something_that_is_not_a_project_name_is_refused() {
-        for value in ["@", "@Codestyle", "@acme/codestyle", "@-api"] {
+        for value in ["@", "@Codestyle", "@acme//codestyle", "@-api"] {
             assert!(
                 matches!(
                     MemberRef::parse(value),
@@ -326,6 +415,130 @@ mod tests {
                 "{value} should not be a project"
             );
         }
+    }
+
+    #[test]
+    fn the_sigil_and_not_the_charset_is_what_keeps_the_two_arms_apart() {
+        let MemberRef::Project(name) = MemberRef::parse("@acme/codestyle").unwrap() else {
+            panic!("a sigil makes it a project however many slashes follow");
+        };
+        assert_eq!(name.as_str(), "acme/codestyle");
+
+        assert_eq!(
+            MemberRef::parse("acme/codestyle").unwrap(),
+            MemberRef::Repo(PathBuf::from("acme/codestyle")),
+            "bare, the same text is still a relative path"
+        );
+    }
+
+    #[test]
+    fn a_name_is_a_path_of_segments_each_on_the_charset() {
+        for name in [
+            "codestyle",
+            "acme/codestyle",
+            "acme/platform/tooling/codestyle",
+            "a.b/c_d-e/9",
+        ] {
+            assert_eq!(ProjectName::parse(name).unwrap().as_str(), name);
+        }
+    }
+
+    #[test]
+    fn every_way_a_path_could_escape_is_refused_by_the_charset() {
+        for name in [
+            "",
+            "/acme",
+            "acme/",
+            "acme//api",
+            ".",
+            "..",
+            "acme/../api",
+            "acme/./api",
+            "Acme/api",
+            "acme/-api",
+            "acme/.hidden",
+        ] {
+            assert!(
+                matches!(
+                    ProjectName::parse(name),
+                    Err(EngineError::InvalidProjectName { .. })
+                ),
+                "{name:?} should not be a project name"
+            );
+        }
+    }
+
+    #[test]
+    fn depth_is_uncapped_and_length_is_bounded_at_128() {
+        let deep: String = std::iter::repeat_n("a", 60)
+            .collect::<Vec<&str>>()
+            .join("/");
+        assert_eq!(deep.len(), 119);
+        assert!(ProjectName::parse(&deep).is_ok(), "depth is not the bound");
+
+        let long = "a".repeat(MAX_PROJECT_NAME_LENGTH);
+        assert!(ProjectName::parse(&long).is_ok());
+        assert!(ProjectName::parse(&format!("{long}a")).is_err());
+    }
+
+    #[test]
+    fn the_two_directories_bitplane_puts_inside_a_project_are_reserved_as_segments() {
+        for (name, segment) in [
+            ("repo.git", "repo.git"),
+            ("bin", "bin"),
+            ("acme/bin", "bin"),
+            ("acme/repo.git/api", "repo.git"),
+        ] {
+            assert_eq!(
+                ProjectName::parse(name),
+                Err(EngineError::ReservedNameSegment {
+                    name: name.to_owned(),
+                    segment: segment.to_owned(),
+                }),
+                "for {name}"
+            );
+        }
+
+        assert!(
+            ProjectName::parse("acme/binary").is_ok(),
+            "the reservation is a whole segment, not a prefix"
+        );
+    }
+
+    #[test]
+    fn nesting_is_a_segment_boundary_in_either_direction_and_never_equality() {
+        let parent = ProjectName::parse("acme").unwrap();
+        let child = ProjectName::parse("acme/codestyle").unwrap();
+
+        assert!(parent.nests_with(&child));
+        assert!(child.nests_with(&parent), "and the other way round");
+        assert!(!parent.nests_with(&parent), "equal is taken, not nesting");
+        assert!(
+            !ProjectName::parse("acme/api")
+                .unwrap()
+                .nests_with(&ProjectName::parse("acme/apiary").unwrap()),
+            "a shared prefix that is not a whole segment is not nesting"
+        );
+    }
+
+    #[test]
+    fn the_ladder_suffixes_the_last_segment_and_never_the_whole_name() {
+        assert_eq!(
+            ProjectName::parse("acme/api")
+                .unwrap()
+                .with_last_segment("api-2")
+                .unwrap()
+                .as_str(),
+            "acme/api-2"
+        );
+        assert_eq!(
+            ProjectName::parse("api")
+                .unwrap()
+                .with_last_segment("api-2")
+                .unwrap()
+                .as_str(),
+            "api-2"
+        );
     }
 
     #[test]

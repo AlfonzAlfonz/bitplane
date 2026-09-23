@@ -111,6 +111,45 @@ impl World {
         path
     }
 
+    /// A forge served **at the URL the documentation gives it**.
+    ///
+    /// [`World::forge`] aliases a scratch path to a documented URL and
+    /// translates the two on the way past, which is enough while a URL is only
+    /// text. It stopped being enough when a project's default name became the
+    /// URL's own path (ADR-0009): bitplane would name the project after the
+    /// scratch directory. So this fixture teaches **git** the alias instead —
+    /// `url.<scratch>.insteadOf <documented>` in the fixture's own
+    /// `~/.gitconfig` — and hands bitplane the documented URL untouched.
+    pub fn hosted_forge(&mut self, url: &str) -> PathBuf {
+        // Under the host as well as the path: two forges serving one path is
+        // the very collision one of these examples is about.
+        let path = self.inside(
+            &self
+                .root
+                .join("forges")
+                .join(url_host(url))
+                .join(url_tail(url)),
+        );
+        repository_with_one_commit(&path);
+        let path = path.canonicalize().expect("the forge was just made");
+
+        // Written as a quoted subsection rather than through `git config
+        // url.<base>.insteadOf`, whose key splits on the last dot — which a
+        // scratch path is free to contain.
+        let config = self.home.join(".gitconfig");
+        let existing = fs::read_to_string(&config).unwrap_or_default();
+        fs::write(
+            &config,
+            format!(
+                "{existing}[url \"{}\"]\n\tinsteadOf = {url}\n",
+                path.display()
+            ),
+        )
+        .expect("write the fixture's git config");
+
+        path
+    }
+
     /// A forge, registered as an owned project. Returns the project directory.
     pub fn project(&mut self, url: &str) -> PathBuf {
         self.project_with(url, &[])
@@ -128,6 +167,17 @@ impl World {
         self.register(&forge);
         self.projects()
             .join(url_tail(url).rsplit('/').next().expect("a last segment"))
+    }
+
+    /// Registers a [`World::hosted_forge`] by the URL it is served at, which
+    /// is what names it.
+    pub fn register_url(&self, url: &str) {
+        let run = self.run(&format!("bp project add {url}"));
+        assert_eq!(
+            run.code, 0,
+            "the fixture project at {url} was not registered: {}",
+            run.stderr
+        );
     }
 
     /// Registers a forge as an owned project.
@@ -676,6 +726,23 @@ fn executable(path: &Path) {
 }
 
 /// The last two segments of a git URL's path, without its transport or `.git`.
+/// The host a URL names, for a fixture directory to sit under. `local` where
+/// it names none.
+fn url_host(url: &str) -> String {
+    let host = match url.split_once("://") {
+        Some((_, after)) => after.split('/').next().unwrap_or_default(),
+        None => match (url.find(':'), url.find('/')) {
+            (Some(colon), slash) if slash.is_none_or(|slash| colon < slash) => &url[..colon],
+            _ => "",
+        },
+    };
+
+    match host.rsplit('@').next().unwrap_or_default() {
+        "" => "local".to_owned(),
+        host => host.to_owned(),
+    }
+}
+
 fn url_tail(url: &str) -> String {
     let path = match url.split_once("://") {
         Some((_, after)) => after.split_once('/').map(|(_, path)| path).unwrap_or(""),

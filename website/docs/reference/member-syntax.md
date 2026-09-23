@@ -12,7 +12,7 @@ the plane. This page is how you write one.
 
 | form | example | what it is |
 | --- | --- | --- |
-| `@<name>` | `@codestyle` | a **registered project** — see [`bp project add`](./project/add.md) |
+| `@<name>` | `@codestyle`, `@acme/codestyle` | a **registered project** — see [`bp project add`](./project/add.md) |
 | a path | `~/projects/bitplane` | an **ad-hoc member**: a repo that is not a registered project |
 
 ```
@@ -21,15 +21,18 @@ bp create ~/projects/bitplane -b feat-x    # one ad-hoc member
 bp create @api ~/projects/bitplane -b feat-x   # both, in one plane
 ```
 
-The two cannot be confused. A project name is `[a-z0-9][a-z0-9._-]*`, so it can
-contain neither `@` nor `/`, and anything that is not a project name is read as
-a path.
+**The sigil is what keeps the two apart, and it is the only thing that does.**
+A project name is a `/`-separated path of segments, so it can look exactly like
+a relative path: `@acme/codestyle` is a project and bare `acme/codestyle` is a
+path. The `@` is required in precisely the position where that ambiguity exists
+— which is why it is required there.
 
 ### The `@` sigil
 
 The `@` is **syntax, not part of the name**. `bp` strips it once, when it reads
 your command line, and the bare name is what appears in `BITPLANE_PROJECT`, in
-`project.toml` and in every message.
+`project.toml` and in every message — slashes and all, so a script reading
+`BITPLANE_PROJECT` may get a value containing `/`.
 
 It is **required wherever a path would also be accepted** — that is, on
 `bp create`, `bp add` and `bp rm` — and **optional everywhere else**:
@@ -121,6 +124,15 @@ keeps the layout it was built with.
 | --- | --- |
 | `git@gitlab.com:acme/codestyle.git` | `acme/codestyle` |
 | `~/projects/bitplane` | `projects/bitplane` |
+
+The table is **unchanged by nested project names**: the path comes from the
+member's *source*, never from its name. So `@acme/platform/tooling/codestyle`
+still lands at `tooling/codestyle`, and two projects sharing a parent segment —
+`acme/platform/tooling/codestyle` and `acme/infra/tooling/codestyle` — derive
+one path and cannot be members of the same plane. That is
+[`member_path_collision`](./refusals-and-waivers.md#usage-failures), and it has
+no flag and no waiver: two worktrees cannot occupy one directory. Put one of
+them in another plane.
 
 A member whose derived path would begin with `.bitplane` is refused — that
 segment is reserved for `bp`'s own per-plane files. See
