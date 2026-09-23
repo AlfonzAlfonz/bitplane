@@ -60,6 +60,7 @@ dependencies = [
  "clap",
  "libc",
  "serde_json",
+ "toml_edit",
 ]
 
 [[package]]

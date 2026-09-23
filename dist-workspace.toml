@@ -1,0 +1,66 @@
+# Release plumbing, generated from here by `dist` (formerly cargo-dist).
+#
+# One config produces the whole channel set ADR-0001 committed to: per-target
+# archives on a GitHub Release, the `curl | sh` installer, and the npm wrapper.
+# `.github/workflows/release.yml` is generated from this file and must never be
+# hand-edited — `dist generate` rewrites it, and CI checks that it is in sync.
+#
+# One thing here is **not** what ADR-0001 described. The ADR specified the npm
+# wrapper as "per-platform `optionalDependencies` (the esbuild / swc / Biome
+# pattern)". dist does not implement that pattern and offers no setting for it:
+# its npm package is a single package that fetches the right archive from the
+# release in a `postinstall` script. The outcome a user sees is the same — one
+# binary, nothing compiled — but it needs network access and runs scripts at
+# install time, so `npm install --ignore-scripts` and an offline mirror do not
+# work. See `website/docs/install.md`, which documents what actually ships.
+
+[workspace]
+members = ["cargo:."]
+
+[dist]
+# Pinned, like the Rust toolchain: CI installs exactly this dist and no other,
+# so a release built today and a release built next year are built the same way.
+cargo-dist-version = "0.33.0"
+ci = "github"
+hosting = "github"
+
+# ADR-0001's four, and no more. No native Windows: the hook model runs user
+# commands through `sh -c` and the whole layout assumes POSIX. Both musl targets
+# are here to link statically; `.github/workflows/rust.yml` proves that they do.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+]
+
+# No `homebrew`: a tap has to be kept alive for as long as anyone uses it, and
+# it gets made once there are users asking for it. No `powershell` or `msi`:
+# there is no Windows build to install.
+installers = ["shell", "npm"]
+
+# The audience is developers who use git worktrees — not developers who have
+# Rust, so dist's `CARGO_HOME` default would install into a directory that only
+# exists on machines that did not need this channel.
+install-path = "~/.local/bin"
+install-updater = false
+
+# The crate is `bitplane-cli` because the workspace splits core from CLI; the
+# thing people install is `bitplane`. npm is the one channel where that
+# distinction would leak into a name a user types.
+npm-package = "bitplane"
+
+# Publishing the npm package is what makes `npm install -g bitplane` mean
+# anything; building it only attaches a tarball to the release. This needs an
+# `NPM_TOKEN` repository secret, which is a one-time manual step — see
+# CONTRIBUTING.md.
+#
+# `homebrew` is deliberately absent here as well as from `installers`, and
+# crates.io is not a dist channel at all: that one is refused by
+# `publish = false` on both crates.
+publish-jobs = ["npm"]
+
+# Build every target on every pull request, not just `dist plan`. This is the
+# check that catches a dependency pulling in a shared library, and it catches it
+# by running the same build the release runs rather than an approximation of it.
+pr-run-mode = "upload"

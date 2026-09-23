@@ -5,6 +5,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+# ADR-0001: bitplane is deliberately not published to crates.io. Saying so here
+# means an accidental `cargo publish` is refused rather than regretted.
+publish = false
 
 [dependencies]
 serde.workspace = true

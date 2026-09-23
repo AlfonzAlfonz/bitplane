@@ -4,13 +4,14 @@ title: Installation
 
 # Installation
 
-:::not-implemented
+:::in-progress
 
-**No release has been tagged yet**, so none of the channels below has anything
-in it. Until the first tag, [building from source](#building-from-source) is the
-only way to get a `bp` on your machine. This page is the specification the
-release plumbing is being built against; the channel list is fixed and is what
-ADR-0001 committed to.
+Every channel below is **built and wired up**, and **no release has been tagged
+yet**, so every one of them is still empty. What is missing is a tag, not
+plumbing: pushing one runs the release, and each channel fills in.
+
+Until then, [building from source](#building-from-source) is the only way to get
+a `bp` on your machine.
 
 :::
 
@@ -53,17 +54,22 @@ missing `-z` would mean two code paths for a situation nobody is in.
 
 ## Platforms
 
-| platform | supported |
-| --- | --- |
-| macOS, Apple silicon | yes |
-| macOS, Intel | yes |
-| Linux x86-64 | yes, statically linked |
-| Linux arm64 | yes, statically linked |
-| Windows | no — use WSL2 |
+| platform | archive | supported |
+| --- | --- | --- |
+| macOS, Apple silicon | `aarch64-apple-darwin` | yes |
+| macOS, Intel | `x86_64-apple-darwin` | yes |
+| Linux x86-64 | `x86_64-unknown-linux-musl` | yes, statically linked |
+| Linux arm64 | `aarch64-unknown-linux-musl` | yes, statically linked |
+| Windows | — | no — use WSL2 |
+
+The middle column is the name in the middle of the archive on the release, for
+when you are picking one by hand.
 
 Both Linux builds are musl-linked and depend on no shared library, so they run
 on a distribution older than the one they were built on and inside a
-`FROM scratch` container.
+`FROM scratch` container. That is checked on every pull request rather than
+assumed: CI reads each built binary back and fails if it asks for a shared
+library or a dynamic loader.
 
 **Windows is not supported natively, and is deferred rather than rejected.**
 Scripts run through `sh -c`, and path derivation, plane layout and file locking
@@ -74,17 +80,21 @@ all assume POSIX. WSL2 works, and is where your worktrees want to live anyway.
 ### Install script
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/AlfonzAlfonz/bitplane/releases/latest/download/bitplane-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/AlfonzAlfonz/bitplane/releases/latest/download/bitplane-cli-installer.sh | sh
 ```
 
 Detects your platform, downloads that archive from the GitHub release, and puts
-`bp` somewhere on your `PATH`.
+`bp` in `~/.local/bin`, adding it to your `PATH` if it is not there already.
+
+The script is named after the crate that produces the binary, `bitplane-cli`,
+rather than after the project. That is the only place the workspace's internal
+split is visible from outside.
 
 ### GitHub Releases
 
-One archive per platform on
-[the releases page](https://github.com/AlfonzAlfonz/bitplane/releases), plus
-checksums. Unpack it and move `bp` onto your `PATH`. This is the channel with no
+One `.tar.xz` per platform on
+[the releases page](https://github.com/AlfonzAlfonz/bitplane/releases), each
+next to its own `.sha256`. Unpack it and move `bp` onto your `PATH`. This is the channel with no
 magic in it, and the one to use when you want to see what you are installing
 before you install it.
 
@@ -94,15 +104,19 @@ before you install it.
 npm install -g bitplane
 ```
 
-The npm package is a thin wrapper whose `optionalDependencies` are one package
-per platform, so npm resolves and downloads exactly one binary — the esbuild and
-Biome pattern. The binary it puts on your `PATH` is the same one the other
-channels ship; nothing is compiled, and no `node_modules` of bitplane's own is
-involved.
+The npm package is a thin wrapper. Installing it runs a `postinstall` script
+that works out which platform you are on and downloads that one archive from the
+GitHub release — the same archive the other channels ship. Nothing is compiled,
+and the only JavaScript involved is the handful of lines that do the download.
 
-Shipping in Rust does not cost the npm channel, which is the whole point of the
-pattern. Use it if npm is how your team installs tools; there is no other reason
-to prefer it.
+Shipping in Rust does not cost the npm channel, which is the point. Use it if
+npm is how your team installs tools; there is no other reason to prefer it.
+
+**Two caveats, because the download happens at install time rather than at
+resolve time.** `npm install --ignore-scripts` gets you the wrapper and no
+binary, and an offline or mirrored registry does not help, because the binary
+does not come from the registry. If either applies to you, use the install
+script or the archive.
 
 ### Homebrew
 
@@ -175,7 +189,12 @@ it, which is also the uninstall answer.
 ## Uninstalling
 
 Remove the binary the way your channel installed it — `npm uninstall -g
-bitplane`, or delete the file. Then, if you want the data gone too:
+bitplane`, or delete the file. The install script leaves two more things of its
+own: `~/.config/bitplane-cli/`, holding its receipt and the `env` scripts that
+put `~/.local/bin` on your `PATH`, and the line sourcing them in your shell's rc
+file. Neither belongs to `bp` and neither is listed by `--footprint` below.
+
+Then, if you want the data gone too:
 
 ```sh
 bp doctor --footprint     # see everything bp owns, before deleting any of it

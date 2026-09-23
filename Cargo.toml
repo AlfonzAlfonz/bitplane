@@ -7,6 +7,8 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-2.0-or-later"
 authors = ["Denis Homolík"]
+repository = "https://github.com/AlfonzAlfonz/bitplane"
+homepage = "https://alfonzalfonz.github.io/bitplane/"
 
 [workspace.dependencies]
 bitplane-core = { path = "crates/bitplane-core" }
@@ -21,3 +23,9 @@ strip = true
 lto = true
 codegen-units = 1
 panic = "abort"
+
+# What `dist` builds a release with. It inherits `release` and overrides
+# nothing: an artefact somebody downloads should be the binary that
+# `cargo build --release` produces here, not a near relative of it.
+[profile.dist]
+inherits = "release"

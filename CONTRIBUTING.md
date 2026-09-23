@@ -84,3 +84,40 @@ words.
 
 `CONTEXT.md` is the glossary and `docs/adr/` holds the decisions. Every ticket,
 page and identifier uses those words and no synonyms.
+
+## Cutting a release
+
+Releases are built by [dist](https://opensource.axo.dev/cargo-dist/), configured
+entirely in `dist-workspace.toml`. Pushing a tag is the whole procedure:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` then builds all four targets, makes the GitHub
+Release, and publishes the npm package.
+
+### release.yml is generated; never edit it
+
+It is `dist generate`'s output. Change `dist-workspace.toml`, then:
+
+```sh
+dist generate
+```
+
+CI runs `dist generate --check` on every pull request, so an edit to the config
+without a regenerate fails there rather than at the tag.
+
+`crates/bitplane-cli/tests/release.rs` covers the rest of the plumbing: that the
+targets are ADR-0001's four, that both musl targets are checked for static
+linking, that nothing can reach crates.io, and that `website/docs/install.md`
+names the files a release actually produces.
+
+### Two things have to be done by hand, once
+
+- **`NPM_TOKEN`** must exist as a repository secret, or the npm publish step
+  fails. Create a granular npm access token with read-and-write on packages and
+  add it under Settings → Secrets and variables → Actions.
+- **GitHub Pages** must be switched to the *GitHub Actions* source, which
+  `actions/deploy-pages` cannot do for itself. See `website/README.md`.

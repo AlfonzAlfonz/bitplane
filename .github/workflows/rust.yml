@@ -1,4 +1,5 @@
-# Builds and tests the workspace on every pull request.
+# Builds and tests the workspace on every pull request, and holds the musl
+# builds to ADR-0001's linking rule.
 #
 # The reference snapshot suite runs here, which is what makes a disagreement
 # between `website/docs/reference/` and the binary a failing check rather than
@@ -42,3 +43,109 @@ jobs:
       - run: cargo clippy --all-targets -- --deny warnings
 
       - run: cargo test --workspace
+
+  # `release.yml` is generated from `dist-workspace.toml`, and a generator's
+  # output stops matching its input the moment somebody edits the input alone.
+  # Nothing about that edit looks wrong until a tag is pushed and the release
+  # builds the old target list.
+  dist-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The version dist pins itself to, installed the way dist's own workflow
+      # installs it. Bumping `cargo-dist-version` means regenerating, and this
+      # is where forgetting to shows up.
+      - name: Install dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -oE '^cargo-dist-version = "[^"]+"' dist-workspace.toml | cut -d'"' -f2)
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            "https://github.com/axodotdev/cargo-dist/releases/download/v$version/cargo-dist-installer.sh" | sh
+
+      - run: dist generate --check
+
+  # `release.yml` already builds all four targets on every pull request, which
+  # is what catches a target that stopped compiling. It does not catch the other
+  # half of ADR-0001's linking rule: a musl build that quietly grew an
+  # interpreter and a `NEEDED` entry compiles perfectly well and ships a binary
+  # that dies on a host without the library.
+  #
+  # So this asks the binary rather than the build. Both musl targets are built
+  # on a runner of their own architecture — the same way `release.yml` builds
+  # them — and then read back.
+  static-linking:
+    name: static-linking (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      # `rustup target add`, not `dtolnay/rust-toolchain`: that action exports
+      # `RUSTUP_TOOLCHAIN` and would build this with stable, while `release.yml`
+      # installs no toolchain of its own and so builds the shipped binary with
+      # the `rust-toolchain.toml` pin. Checking the wrong one proves nothing.
+      - run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - run: cargo build --release --target ${{ matrix.target }} --bin bp
+
+      # Two questions, because a binary can fail this in two different ways:
+      # `NEEDED` is a library it wants loaded, `INTERP` is a dynamic loader it
+      # wants run before `main`. A `FROM scratch` container has neither.
+      #
+      # "Has a dynamic section" is deliberately **not** the question. The two
+      # targets do not agree on that: x86-64 links static-pie and carries a
+      # dynamic section for its own relocations, arm64 links plain static and
+      # has none. Both are static; only the two entries below distinguish a
+      # binary that needs something from one that does not.
+      #
+      # The first check is the one that has to be positive. `readelf` prints its
+      # complaint to stderr and still exits 0 when it cannot open a file, so a
+      # check built only out of "no NEEDED, no INTERP" passes with flying
+      # colours on a path that does not exist — it found nothing because it read
+      # nothing. `test -x` and a `file` description that has to *say* static
+      # cannot pass that way; the two `readelf` questions then say which way a
+      # binary failed.
+      - name: bp needs nothing at runtime
+        run: |
+          set -euo pipefail
+          binary=target/${{ matrix.target }}/release/bp
+
+          test -x "$binary"
+          description=$(file -b "$binary")
+          echo "$description"
+
+          case "$description" in
+            *'statically linked'*|*'static-pie linked'*) ;;
+            *)
+              echo "::error::$binary is not statically linked: $description"
+              exit 1
+              ;;
+          esac
+
+          if readelf --dynamic "$binary" | grep -F 'NEEDED'; then
+            echo "::error::$binary loads a shared library at runtime, which ADR-0001 forbids"
+            exit 1
+          fi
+
+          if readelf --program-headers "$binary" | grep -F 'INTERP'; then
+            echo "::error::$binary asks for a dynamic loader, which ADR-0001 forbids"
+            exit 1
+          fi
+
+          echo "$binary is statically linked"
