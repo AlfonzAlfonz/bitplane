@@ -14,9 +14,9 @@ use std::path::PathBuf;
 use bitplane_core::{
     BranchIntent, Directories, DirectoryOverrides, EngineError, ErrorEnvelope, HealthCheck,
     Interrupt, LocalEngine, PlaneAddRequest, PlaneCreateRequest, PlaneDestroyRequest,
-    PlaneListRequest, PlaneRef, PlaneRemoveRequest, PlaneShowRequest, PlaneStatusRequest,
-    ProjectAddRequest, ProjectFetchRequest, Reason, Request, Response, SystemEnvironment,
-    Termination, dispatch,
+    PlaneListRequest, PlaneRef, PlaneRemoveRequest, PlaneScriptsRequest, PlaneShowRequest,
+    PlaneStatusRequest, ProjectAddRequest, ProjectFetchRequest, ProjectName, Reason, Request,
+    Response, SystemEnvironment, Termination, dispatch,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use render::Rendering;
@@ -82,6 +82,9 @@ enum Command {
     /// Take members out of a plane, leaving the rest of the plane alone.
     Rm(RemoveArgs),
 
+    /// Run a project's declared scripts, by name, on demand.
+    Run(RunArgs),
+
     /// Manage the projects registered on this host.
     #[command(subcommand)]
     Project(ProjectCommand),
@@ -98,6 +101,26 @@ enum ProjectCommand {
 
     /// Bring owned projects up to date with their forges.
     Fetch(ProjectFetchArgs),
+}
+
+/// `bp run @api install`, which reads like `npm run install` on purpose.
+///
+/// **The project is mandatory**: nobody gets a six-repo script run by typing
+/// nothing. It takes script names only and never a point name — points are
+/// bindings, not addressable things, so the two never share a namespace.
+#[derive(Debug, Args)]
+struct RunArgs {
+    /// The project whose scripts to run, as `@name` or `name`. Must be a
+    /// member of the plane.
+    #[arg(value_name = "project")]
+    project: String,
+
+    /// The scripts, run in the order you name them.
+    #[arg(required = true, value_name = "script")]
+    scripts: Vec<String>,
+
+    #[command(flatten)]
+    plane: PlaneArgs,
 }
 
 #[derive(Debug, Args)]
@@ -139,6 +162,9 @@ struct CreateArgs {
 
     #[command(flatten)]
     fetch: FetchArg,
+
+    #[command(flatten)]
+    scripts: ScriptsArg,
 }
 
 /// Whether the branch asked for must exist, must not, or either.
@@ -166,6 +192,18 @@ struct FetchArg {
     /// Do not fetch the owned projects named before building their worktrees.
     #[arg(long)]
     no_fetch: bool,
+}
+
+/// The scripts a lifecycle point fires.
+///
+/// Available on **every** command that runs them, which is the whole answer to
+/// *can a `project.toml` make a plane undestroyable*: it cannot, because
+/// `bp destroy --no-scripts` always works (ADR-0007).
+#[derive(Debug, Args)]
+struct ScriptsArg {
+    /// Do not run the scripts bound to this command's lifecycle point.
+    #[arg(long)]
+    no_scripts: bool,
 }
 
 impl From<BranchIntentArgs> for BranchIntent {
@@ -200,6 +238,9 @@ struct AddArgs {
 
     #[command(flatten)]
     fetch: FetchArg,
+
+    #[command(flatten)]
+    scripts: ScriptsArg,
 }
 
 #[derive(Debug, Args)]
@@ -230,6 +271,9 @@ struct DestroyArgs {
 
     #[command(flatten)]
     waive: WaiveArg,
+
+    #[command(flatten)]
+    scripts: ScriptsArg,
 }
 
 #[derive(Debug, Args)]
@@ -244,6 +288,9 @@ struct RemoveArgs {
 
     #[command(flatten)]
     waive: WaiveArg,
+
+    #[command(flatten)]
+    scripts: ScriptsArg,
 }
 
 /// How a command that acts on an existing plane is aimed.
@@ -384,12 +431,20 @@ fn answer(command: Command, global: &GlobalFlags) -> Result<Response, EngineErro
         .announcing_lock_waits(|object| {
             // Progress, not a result, so it goes to stderr in both modes.
             let _ = writeln!(std::io::stderr(), "waiting for {}…", object.display());
+        })
+        .streaming_script_output(|bytes| {
+            // Live and merged, so a hang looks like a hang rather than a
+            // freeze — and on stderr in both modes, because stdout is the
+            // machine contract and a `pnpm` banner inside the JSON breaks it.
+            let mut stderr = std::io::stderr();
+            let _ = stderr.write_all(bytes);
+            let _ = stderr.flush();
         });
 
     // git is checked once, before any command touches anything (ADR-0001).
     engine.ensure_git_supported()?;
 
-    dispatch(&engine, request_for(command))
+    dispatch(&engine, request_for(command)?)
 }
 
 /// A response that reported an interrupt or a finding still goes to stdout —
@@ -461,8 +516,8 @@ fn no_command() -> ErrorEnvelope {
 
 /// Turns a parsed subcommand into the request that crosses the wire. The
 /// `match` is what makes a forgotten wiring a compile error.
-fn request_for(command: Command) -> Request {
-    match command {
+fn request_for(command: Command) -> Result<Request, EngineError> {
+    Ok(match command {
         Command::List(args) => Request::PlaneList(PlaneListRequest {
             health: args.health.health.into(),
         }),
@@ -486,11 +541,13 @@ fn request_for(command: Command) -> Request {
         Command::Destroy(args) => Request::PlaneDestroy(PlaneDestroyRequest {
             plane: plane_ref(args.plane),
             waive: args.waive.waive,
+            run_scripts: !args.scripts.no_scripts,
         }),
         Command::Rm(args) => Request::PlaneRemove(PlaneRemoveRequest {
             plane: plane_ref(args.plane),
             members: args.members,
             waive: args.waive.waive,
+            run_scripts: !args.scripts.no_scripts,
         }),
         Command::Create(args) => Request::PlaneCreate(PlaneCreateRequest {
             members: args.members,
@@ -498,6 +555,7 @@ fn request_for(command: Command) -> Request {
             id: args.id,
             intent: args.intent.into(),
             fetch: !args.fetch.no_fetch,
+            run_scripts: !args.scripts.no_scripts,
         }),
         Command::Add(args) => Request::PlaneAdd(PlaneAddRequest {
             plane: plane_ref(args.plane),
@@ -505,8 +563,21 @@ fn request_for(command: Command) -> Request {
             branch: args.branch,
             intent: args.intent.into(),
             fetch: !args.fetch.no_fetch,
+            run_scripts: !args.scripts.no_scripts,
         }),
-    }
+        Command::Run(args) => Request::PlaneScripts(PlaneScriptsRequest {
+            plane: plane_ref(args.plane),
+            names: args.scripts,
+            // The one slot where the sigil is optional: no path is accepted
+            // here, so there is nothing for it to disambiguate.
+            projects: vec![project_name(&args.project)?],
+        }),
+    })
+}
+
+/// One `bp run` project argument, with its optional sigil stripped.
+fn project_name(value: &str) -> Result<ProjectName, EngineError> {
+    ProjectName::parse(value.strip_prefix('@').unwrap_or(value))
 }
 
 /// Which plane the command is about.

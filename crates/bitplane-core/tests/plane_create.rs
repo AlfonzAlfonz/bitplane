@@ -443,6 +443,7 @@ fn a_branch_suffix_beats_the_shared_branch_for_that_member_alone() {
             branch: Some("feat-login".to_owned()),
             id: None,
             intent: BranchIntent::Resolve,
+            run_scripts: true,
             fetch: true,
         })
         .unwrap();
@@ -836,6 +837,7 @@ fn request(members: &[&Path], branch: &str) -> PlaneCreateRequest {
         id: None,
         intent: BranchIntent::Resolve,
         fetch: true,
+        run_scripts: true,
     }
 }
 

@@ -4,14 +4,9 @@ title: bp add
 
 # `bp add`
 
-:::in-progress
+:::implemented
 
-Everything on this page works: the branch rules, branch intent and its
-refusal of `--no-fetch`, the typed duplicate, the surgical unwind, and the
-latch that `add` never sets. One part is not there yet:
-
-- **`--no-scripts` is not accepted.** No `post_worktree_create` script runs,
-  so there is nothing to switch off.
+Everything on this page works as described.
 
 :::
 

@@ -1032,6 +1032,7 @@ impl Host {
                 id: None,
                 intent: BranchIntent::Resolve,
                 fetch: true,
+                run_scripts: true,
             })
             .expect("the fixture plane was built")
     }
@@ -1040,6 +1041,7 @@ impl Host {
         self.engine().plane_destroy(PlaneDestroyRequest {
             plane,
             waive: waive.to_vec(),
+            run_scripts: true,
         })
     }
 
@@ -1071,6 +1073,7 @@ impl Host {
             plane,
             members: members.iter().map(|member| (*member).to_owned()).collect(),
             waive: waive.to_vec(),
+            run_scripts: true,
         })
     }
 

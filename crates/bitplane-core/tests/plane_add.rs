@@ -480,6 +480,7 @@ fn request(members: &[&Path], branch: &str) -> PlaneAddRequest {
         branch: Some(branch.to_owned()),
         intent: BranchIntent::Resolve,
         fetch: true,
+        run_scripts: true,
     }
 }
 
@@ -541,6 +542,7 @@ impl Host {
                 id: Some("auth-work".to_owned()),
                 intent: BranchIntent::Resolve,
                 fetch: true,
+                run_scripts: true,
             })
             .expect("the fixture plane was created")
     }

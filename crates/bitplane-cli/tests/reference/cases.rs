@@ -423,20 +423,41 @@ fn plane_rm() -> Vec<Case> {
 }
 
 fn plane_run() -> Vec<Case> {
-    const WHY: &str = "scripts and bp run are ticket 13";
-
     vec![
         Case {
             example: "Running a script",
-            expectation: Expectation::NotBuilt(WHY),
-            build: |_| {},
+            expectation: Expectation::Matches,
+            build: |world| scripted_plane(world),
         },
         Case {
             example: "Several scripts, in the order you named them",
-            expectation: Expectation::NotBuilt(WHY),
-            build: |_| {},
+            expectation: Expectation::Matches,
+            build: |world| scripted_plane(world),
         },
     ]
+}
+
+/// A plane holding `@api`, whose project declares the two scripts the `bp run`
+/// page names.
+///
+/// Both are silent: a page that prints only its rows is a page whose scripts
+/// wrote nothing, and script output goes to stderr as it happens.
+fn scripted_plane(world: &mut World) {
+    world.project_with(API, &["feat-login"]);
+    world.declares(
+        "api",
+        concat!(
+            "[scripts.link-alfonz]\n",
+            "argv = [\"true\"]\n",
+            "post_worktree_create = true\n\n",
+            "[scripts.install]\n",
+            "shell = \"exit 0\"\n",
+            "post_worktree_create = true\n",
+        ),
+    );
+
+    let plane = world.anonymous_plane(&["@api"], "feat-login");
+    world.cd(plane);
 }
 
 fn plane_show() -> Vec<Case> {

@@ -37,6 +37,14 @@ impl Rfc3339 {
             seconds_since_epoch,
         }
     }
+
+    /// The same instant with its separators gone: `20260921T140312Z`.
+    ///
+    /// What a script log is named by. RFC 3339's colons are hostile in
+    /// filenames, and the dashes go with them so the stamp stays one token.
+    pub fn compact(&self) -> String {
+        self.to_string().replace(['-', ':'], "")
+    }
 }
 
 impl fmt::Display for Rfc3339 {
@@ -161,6 +169,13 @@ mod tests {
             let at = UNIX_EPOCH + Duration::from_secs(seconds);
             assert_eq!(Rfc3339::at(at).to_string(), expected, "for {seconds}");
         }
+    }
+
+    #[test]
+    fn a_log_name_carries_the_stamp_with_nothing_a_filename_dislikes_in_it() {
+        let at = UNIX_EPOCH + Duration::from_secs(1_758_547_392);
+
+        assert_eq!(Rfc3339::at(at).compact(), "20250922T132312Z");
     }
 
     #[test]

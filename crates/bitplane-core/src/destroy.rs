@@ -3,15 +3,25 @@
 //! ```text
 //! 1. open the plane, take its lock
 //! 2. check every member, collect every refusal   ← nothing is touched yet
-//! 3. git worktree remove, per member
-//! 4. unlink plane.toml        (destroy)  |  rewrite plane.toml  (rm, last)
-//! 5. rm -r the plane directory (destroy)
+//! 3. pre_worktree_remove scripts, one sequential pass  ← still nothing removed
+//! 4. git worktree remove, per member
+//! 5. unlink plane.toml        (destroy)  |  rewrite plane.toml  (rm, last)
+//! 6. rm -r the plane directory (destroy)
 //! ```
 //!
 //! **Step 2 finishes before step 3 begins.** Every reason across every member
 //! comes back in one error, because a half-destroyed plane is worse than a
 //! refused one — and because that is what lets one re-run with the right
 //! waivers finish the job.
+//!
+//! **Scripts cannot join that pass**, and run only once every refusal has
+//! passed: running `docker compose down` and *then* refusing the destroy over
+//! uncommitted work would leave the containers stopped and the plane intact.
+//! A pre-script that exits non-zero **blocks** — nothing is removed — which is
+//! its own error and not a refusal, because a script's exit code is a program's
+//! opinion rather than work the user is looking at. `--no-scripts` is on the
+//! request, so a `project.toml` can never make a plane undestroyable
+//! (ADR-0007).
 //!
 //! **It converges rather than rolling back.** You cannot un-remove a worktree,
 //! so an interrupted or half-failed run is finished by running it again:
@@ -49,9 +59,10 @@ use crate::plane_file::{self, Member, PlaneFile};
 use crate::read;
 use crate::refusal::{Reason, Refusal, Waivers};
 use crate::repo::{Git, Insistence, WorkingTree, WorktreeLock, canonical_path};
+use crate::scripts::{self, InPlane, ScriptContext, ScriptPoint, Stop};
 use crate::wire::{
     BranchDisposition, PlaneDestroyRequest, PlaneDestroyed, PlaneRemoveRequest, PlaneRemoved,
-    RemovedMember,
+    RemovedMember, ScriptOutcome,
 };
 
 /// Everything the teardown verbs need that is not in the request.
@@ -62,6 +73,19 @@ pub struct TeardownContext<'a> {
     pub home: Option<&'a Path>,
     pub interrupt: Interrupt,
     pub on_lock_wait: &'a (dyn Fn(&Path) + Sync),
+    /// Where merged script output goes as it arrives.
+    pub on_script_output: &'a (dyn Fn(&[u8]) + Sync),
+}
+
+impl TeardownContext<'_> {
+    /// What running a script needs out of this, and nothing else.
+    fn scripting(&self) -> ScriptContext<'_> {
+        ScriptContext {
+            directories: self.directories,
+            interrupt: self.interrupt,
+            output: self.on_script_output,
+        }
+    }
 }
 
 /// Takes a plane apart, or refuses and takes nothing.
@@ -94,6 +118,12 @@ pub fn plane_destroy(
         check_every(&members, &plane, &waivers, Teardown::Destroy, context)?
     };
 
+    // Skipped entirely on a latched plane: no `post_worktree_create` ever ran
+    // there, so firing its counterpart would hand a script a worktree it never
+    // set up — and a blocking one would break the refusal-free guarantee that
+    // makes `destroy` the only way out of a latch.
+    let scripts = tear_down(&members, &plane, incomplete, request.run_scripts, context)?;
+
     let rows = take_out(&checked, incomplete, context);
     let interrupted = context.interrupt.is_raised();
 
@@ -118,7 +148,43 @@ pub fn plane_destroy(
         members: rows,
         incomplete,
         interrupted,
+        scripts,
     })
+}
+
+/// The `pre_worktree_remove` pass, before anything is removed.
+///
+/// Returns `Err(ScriptBlocked)` the moment one exits non-zero, with nothing
+/// touched. A block partway through leaves earlier members' teardown already
+/// done with nothing removed — the accepted cost of letting one script both
+/// veto and tear down, and the user's script and the user's unwind.
+fn tear_down(
+    members: &[Member],
+    plane: &OpenPlane,
+    latched: bool,
+    run_scripts: bool,
+    context: &TeardownContext<'_>,
+) -> Result<Vec<ScriptOutcome>, EngineError> {
+    if latched || !run_scripts {
+        return Ok(Vec::new());
+    }
+
+    let outcomes = scripts::at_point(
+        ScriptPoint::PreWorktreeRemove,
+        members,
+        InPlane {
+            id: plane.id(),
+            directory: plane.path(),
+        },
+        Stop::AtTheFirstFailure,
+        &context.scripting(),
+    )?;
+
+    if outcomes.iter().any(|outcome| !outcome.succeeded()) {
+        return Err(EngineError::ScriptBlocked { outcomes });
+    }
+
+    Ok(outcomes)
 }
 
 /// Takes the members named out of a plane, leaving the rest of it alone.
@@ -146,6 +212,7 @@ pub fn plane_remove(
 
     let waivers = Waivers::new(request.waive.clone());
     let checked = check_every(&named, &plane, &waivers, Teardown::Remove, context)?;
+    let scripts = tear_down(&named, &plane, false, request.run_scripts, context)?;
 
     let rows = take_out(&checked, false, context);
 
@@ -167,6 +234,7 @@ pub fn plane_remove(
         directory: plane.path().to_path_buf(),
         members: rows,
         interrupted: context.interrupt.is_raised(),
+        scripts,
     })
 }
 

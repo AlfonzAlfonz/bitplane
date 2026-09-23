@@ -20,7 +20,8 @@ use bitplane_core::{
     BranchDisposition, CreatedMember, ErrorEnvelope, Fetched, Finding, Head, MemberView,
     MemberWork, Outcome, PerMember, PerProject, PlaneAdded, PlaneCreated, PlaneDestroyed,
     PlaneHealth, PlaneList, PlaneRemoved, PlaneStatus, PlaneView, Problem, ProjectAdded,
-    ProjectFetched, ProjectListing, ProjectSummary, RemovedMember, Response,
+    ProjectFetched, ProjectListing, ProjectSummary, RemovedMember, Response, ScriptOutcome,
+    ScriptsRun,
 };
 
 /// Whether output is for a person or a program.
@@ -50,6 +51,7 @@ pub fn response(response: &Response, rendering: Rendering) -> String {
             Response::ProjectFetch(fetched) => fetches(fetched),
             Response::PlaneDestroy(destroyed) => destroyed_plane(destroyed),
             Response::PlaneRemove(removed) => removed_members(removed),
+            Response::PlaneScripts(run) => scripts(run),
         },
     }
 }
@@ -198,6 +200,30 @@ fn removal_notes(member: &RemovedMember) -> String {
     } else {
         format!(" ({})", notes.join(", "))
     }
+}
+
+/// `bp run`: one row per script, in the order they ran.
+///
+/// Nothing about the plane: the scripts' own output has already gone past on
+/// stderr as they ran, so a header here would only push it further up.
+fn scripts(run: &ScriptsRun) -> String {
+    columns(&run.scripts.iter().map(script_row).collect::<Vec<_>>(), "")
+}
+
+/// `<project>  <script>  <outcome>  <how long it took>`.
+fn script_row(outcome: &ScriptOutcome) -> Vec<String> {
+    vec![
+        outcome.subject(),
+        outcome.name.clone(),
+        outcome.failure().unwrap_or("ok").to_owned(),
+        took(outcome.duration_ms),
+    ]
+}
+
+/// How long a script ran, to a tenth of a second — which is the resolution
+/// anyone reads it at.
+fn took(milliseconds: u64) -> String {
+    format!("{:.1}s", milliseconds as f64 / 1000.0)
 }
 
 /// `bp list`: one block per plane, separated by a blank line.
@@ -1092,6 +1118,7 @@ mod tests {
             )],
             interrupted: remnant,
             remnant,
+            scripts: Vec::new(),
         }
     }
 
@@ -1171,6 +1198,7 @@ mod tests {
                     removed_member(),
                 )],
                 interrupted: false,
+                scripts: Vec::new(),
             }),
             Rendering::Human,
         );
@@ -1199,6 +1227,7 @@ mod tests {
                     },
                 )],
                 interrupted: false,
+                scripts: Vec::new(),
             }),
             Rendering::Human,
         );
@@ -1219,6 +1248,7 @@ mod tests {
             ],
             incomplete: false,
             interrupted: false,
+            scripts: Vec::new(),
         }
     }
 
@@ -1257,6 +1287,7 @@ mod tests {
             ],
             interrupted: false,
             remnant: false,
+            scripts: Vec::new(),
         }
     }
 

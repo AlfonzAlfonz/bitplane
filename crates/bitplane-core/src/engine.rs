@@ -19,8 +19,9 @@ use crate::error::EngineError;
 use crate::wire::{
     PlaneAddRequest, PlaneAdded, PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest,
     PlaneDestroyed, PlaneList, PlaneListRequest, PlaneRemoveRequest, PlaneRemoved,
-    PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded,
-    ProjectFetchRequest, ProjectFetched, ProjectListing,
+    PlaneScriptsRequest, PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView,
+    ProjectAddRequest, ProjectAdded, ProjectFetchRequest, ProjectFetched, ProjectListing,
+    ScriptsRun,
 };
 
 /// The reads: `plane_list`, `plane_show`, `plane_status`, `project_list`,
@@ -101,4 +102,12 @@ pub trait Engine: Reader {
     /// member destroys exactly as much work as destroying a one-member plane,
     /// so a lighter rule here would be a hole in that one (ADR-0006).
     fn plane_remove(&self, request: PlaneRemoveRequest) -> Result<PlaneRemoved, EngineError>;
+
+    /// Runs a project's declared scripts, by name, on demand.
+    ///
+    /// Here and not on [`Reader`] because it runs arbitrary user commands and
+    /// writes logs, and *"a read never writes"* has to stay checkable by
+    /// reading the trait (ADR-0003). It refuses on a latched plane: acting on
+    /// one is meaningless work on a thing headed for deletion.
+    fn plane_scripts(&self, request: PlaneScriptsRequest) -> Result<ScriptsRun, EngineError>;
 }

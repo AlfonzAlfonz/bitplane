@@ -15,12 +15,17 @@ use crate::project_fetch::{self, FetchContext};
 use crate::project_list;
 use crate::read::{self, ReadContext};
 use crate::repo::Git;
+use crate::run::{self, RunContext};
 use crate::wire::{
     PlaneAddRequest, PlaneAdded, PlaneCreateRequest, PlaneCreated, PlaneDestroyRequest,
     PlaneDestroyed, PlaneList, PlaneListRequest, PlaneRemoveRequest, PlaneRemoved,
-    PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView, ProjectAddRequest, ProjectAdded,
-    ProjectFetchRequest, ProjectFetched, ProjectListing,
+    PlaneScriptsRequest, PlaneShowRequest, PlaneStatus, PlaneStatusRequest, PlaneView,
+    ProjectAddRequest, ProjectAdded, ProjectFetchRequest, ProjectFetched, ProjectListing,
+    ScriptsRun,
 };
+
+/// Where a script's merged output goes as it arrives.
+type ScriptSink = Box<dyn Fn(&[u8]) + Send + Sync>;
 
 /// bitplane on the local host.
 ///
@@ -33,6 +38,7 @@ pub struct LocalEngine {
     home: Option<PathBuf>,
     interrupt: Interrupt,
     on_lock_wait: Box<dyn Fn(&Path) + Send + Sync>,
+    on_script_output: ScriptSink,
 }
 
 impl LocalEngine {
@@ -45,6 +51,7 @@ impl LocalEngine {
             home: SystemEnvironment.home(),
             interrupt: Interrupt::never(),
             on_lock_wait: Box::new(|_| {}),
+            on_script_output: Box::new(|_| {}),
         }
     }
 
@@ -72,6 +79,20 @@ impl LocalEngine {
         announce: impl Fn(&Path) + Send + Sync + 'static,
     ) -> LocalEngine {
         self.on_lock_wait = Box::new(announce);
+        self
+    }
+
+    /// Where a script's merged output goes as it arrives.
+    ///
+    /// The same seam as [`LocalEngine::announcing_lock_waits`], and for the
+    /// same reason: the engine has no terminal, and a surface that wants the
+    /// bytes says so. Without one, a script's output reaches its log and
+    /// nowhere else.
+    pub fn streaming_script_output(
+        mut self,
+        stream: impl Fn(&[u8]) + Send + Sync + 'static,
+    ) -> LocalEngine {
+        self.on_script_output = Box::new(stream);
         self
     }
 
@@ -128,6 +149,7 @@ impl LocalEngine {
             home: self.home.as_deref(),
             interrupt: self.interrupt,
             on_lock_wait: &*self.on_lock_wait,
+            on_script_output: &*self.on_script_output,
         }
     }
 }
@@ -142,6 +164,7 @@ impl Engine for LocalEngine {
                 home: self.home.as_deref(),
                 interrupt: self.interrupt,
                 on_lock_wait: &*self.on_lock_wait,
+                on_script_output: &*self.on_script_output,
             },
         )
     }
@@ -155,6 +178,7 @@ impl Engine for LocalEngine {
                 home: self.home.as_deref(),
                 interrupt: self.interrupt,
                 on_lock_wait: &*self.on_lock_wait,
+                on_script_output: &*self.on_script_output,
             },
         )
     }
@@ -188,6 +212,17 @@ impl Engine for LocalEngine {
 
     fn plane_remove(&self, request: PlaneRemoveRequest) -> Result<PlaneRemoved, EngineError> {
         destroy::plane_remove(&request, &self.teardown())
+    }
+
+    fn plane_scripts(&self, request: PlaneScriptsRequest) -> Result<ScriptsRun, EngineError> {
+        run::plane_scripts(
+            &request,
+            &RunContext {
+                directories: &self.directories,
+                interrupt: self.interrupt,
+                output: &*self.on_script_output,
+            },
+        )
     }
 }
 

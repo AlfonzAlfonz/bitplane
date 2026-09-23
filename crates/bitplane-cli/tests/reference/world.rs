@@ -160,6 +160,19 @@ impl World {
         .expect("write the project file");
     }
 
+    /// Appends a `[scripts]` table to a registered project's `project.toml`.
+    ///
+    /// Written rather than declared through a command, because there is no
+    /// command that declares one: a script is there because the user typed it
+    /// into their own data directory, and bitplane never writes one on their
+    /// behalf. That is the whole of the shell-alias trust posture.
+    pub fn declares(&self, project: &str, scripts: &str) {
+        let file = self.projects().join(project).join("project.toml");
+        let text = fs::read_to_string(&file).expect("the project was registered first");
+
+        fs::write(file, format!("{text}\n{scripts}")).expect("write the project file");
+    }
+
     /// The plane a generated id named, which is the only kind a page can show
     /// as `bp-a3f9c2e1`: `bp-` is reserved, so no fixture may choose one.
     pub fn anonymous_plane(&mut self, members: &[&str], branch: &str) -> PathBuf {

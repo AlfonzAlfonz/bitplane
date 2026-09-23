@@ -4,13 +4,9 @@ title: bp destroy
 
 # `bp destroy`
 
-:::in-progress
+:::implemented
 
-Teardown, the incomplete latch, the five refusals, `--waive` and branch
-deletion for owned projects all work. One part is not there yet:
-
-- **`--no-scripts` is not accepted.** No `pre_worktree_remove` script
-  runs, so there is nothing to skip.
+Everything on this page works as described.
 
 :::
 

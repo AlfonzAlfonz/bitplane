@@ -4,10 +4,9 @@ title: bp run
 
 # `bp run`
 
-:::not-implemented
+:::implemented
 
-`bp run` does not exist yet. This page is the specification it is being built
-against, not a description of the binary.
+Everything on this page works as described.
 
 :::
 
@@ -66,6 +65,10 @@ at the first non-zero exit.
 - **There is no timeout.** A real `pnpm i && pnpm build` outlives any default
   worth shipping, and a build killed at ten minutes is a worse failure than a
   hang you can see.
+- **A script that backgrounds a long-running process must redirect its
+  output** — `pnpm dev >/dev/null 2>&1 &`. `bp` reads the merged stream until
+  it closes, and a child left holding it open holds `bp` open with it. Ctrl-C
+  is the escape.
 
 ### Output
 
@@ -78,6 +81,11 @@ Merged onto **stderr**, never stdout: stdout is the machine contract, and a
 
 Sequential execution is what keeps live output legible — exactly one script
 writes at a time, so there is no interleaving and no per-line prefixing.
+
+The stamp resolves to a second, so two runs of one script inside the same
+second share a file: the second run is **appended**, never written over. The
+remedy for a failed script points you at that log, so a retry must not be what
+destroys it.
 
 `bp` never cleans these logs up. [`bp destroy`](./destroy.md) removes them with
 the plane directory.

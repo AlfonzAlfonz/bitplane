@@ -4,15 +4,9 @@ title: bp create
 
 # `bp create`
 
-:::in-progress
+:::implemented
 
-Registered projects and ad-hoc members are both built end to end: the
-claim, the latch, `plane.toml`, the abort window, the fetch, branch intent,
-generated and chosen ids, the unwind and Ctrl-C all behave as described.
-One part is not there yet:
-
-- **`--no-scripts` is not accepted.** No `post_worktree_create` script
-  runs, so there is nothing to switch off.
+Everything on this page works as described.
 
 :::
 

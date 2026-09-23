@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::EngineError;
 use crate::member::{MalformedWorktreePath, ProjectName, WorktreePath};
+use crate::scripts::{Script, ScriptCommand, ScriptName, ScriptPoint};
 use crate::toml_text::quoted;
 
 /// The schema version every project file carries, from the first commit.
@@ -50,6 +51,15 @@ const LEGAL_KEYS: [&str; 4] = ["version", "name", "source", "scripts"];
 /// The two keys a `[source]` table may hold beside its `type`.
 const LEGAL_SOURCE_KEYS: [&str; 3] = ["type", "url", "path"];
 
+/// What a `[scripts.<name>]` table may hold: the two command forms, and a
+/// toggle per point.
+const LEGAL_SCRIPT_KEYS: [&str; 4] = [
+    "argv",
+    "shell",
+    "post_worktree_create",
+    "pre_worktree_remove",
+];
+
 /// A project, as the file holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectFile {
@@ -57,6 +67,9 @@ pub struct ProjectFile {
     /// The integrity check. The directory name is the authority.
     pub name: ProjectName,
     pub source: ProjectSource,
+    /// In **declaration order**, which is execution order. bitplane never
+    /// rewrites this table, so the order cannot change behind the user's back.
+    pub scripts: Vec<Script>,
 }
 
 /// Where a project's repo comes from — and, because the two are in 1:1
@@ -73,11 +86,16 @@ pub enum ProjectSource {
 
 impl ProjectFile {
     /// A new project's file, at the current version.
+    ///
+    /// With no scripts: `add` and `adopt` write a file the user has not had a
+    /// chance to declare any in, and bitplane never writes one on their behalf
+    /// — which is the whole of the shell-alias trust posture.
     pub fn new(name: ProjectName, source: ProjectSource) -> ProjectFile {
         ProjectFile {
             version: CURRENT_VERSION,
             name,
             source,
+            scripts: Vec::new(),
         }
     }
 
@@ -100,7 +118,27 @@ impl ProjectFile {
             version: read_version(path, &document)?,
             name: read_name(path, &document)?,
             source: read_source(path, &document)?,
+            scripts: read_scripts(path, &document)?,
         })
+    }
+
+    /// The scripts bound to `point`, in declaration order.
+    ///
+    /// The **resolved per-point sequence**, and the price of the toggle
+    /// declaration form: *"what runs at `post_worktree_create`, in what order"*
+    /// is not answerable from any single place in the file — you read every
+    /// table, in order — so `bp project show` prints what this returns rather
+    /// than leaving it as a config-reading problem (ADR-0007).
+    pub fn at(&self, point: ScriptPoint) -> Vec<&Script> {
+        self.scripts
+            .iter()
+            .filter(|script| script.points.contains(&point))
+            .collect()
+    }
+
+    /// The script called `name`, where this project declares one.
+    pub fn script(&self, name: &ScriptName) -> Option<&Script> {
+        self.scripts.iter().find(|script| &script.name == name)
     }
 
     /// Reads the project file at `path`.
@@ -115,7 +153,8 @@ impl ProjectFile {
     /// file that did not exist. Changing one that does is a `toml_edit`
     /// read-modify-write that touches `name` and `source` and never
     /// `[scripts]`, so a user's declaration order cannot change behind their
-    /// back.
+    /// back — which is also why **this does not render `[scripts]` at all**: a
+    /// file this writes is a new one, and the user has declared none in it yet.
     pub fn render(&self) -> String {
         let (kind, key, value) = self.source.spelling();
 
@@ -322,6 +361,142 @@ fn read_source(
     }
 }
 
+/// Reads `[scripts]`, in declaration order.
+///
+/// An absent table is no scripts, which is the ordinary case and not an error.
+/// Everything else is checked here and nowhere later: a misspelled toggle in a
+/// hand-written file must fail loudly at every read — `bp project show` and
+/// `bp doctor` included — rather than silently costing the user a script that
+/// never runs with no trace of why (ADR-0007).
+fn read_scripts(
+    path: &Path,
+    document: &toml_edit::DocumentMut,
+) -> Result<Vec<Script>, EngineError> {
+    let Some(item) = document.get("scripts") else {
+        return Ok(Vec::new());
+    };
+    let table = item
+        .as_table_like()
+        .ok_or_else(|| shaped_wrong(path, "scripts must be a table"))?;
+
+    table
+        .iter()
+        .map(|(name, entry)| read_script(path, name, entry))
+        .collect()
+}
+
+fn read_script(path: &Path, name: &str, entry: &toml_edit::Item) -> Result<Script, EngineError> {
+    // Not a `script_error`: the legal-keys remedy answers a misspelled key, and
+    // neither of these is one. A remedy that does not answer the failure it is
+    // printed under is worse than none.
+    let name = ScriptName::parse(name).map_err(|_| {
+        shaped_wrong(
+            path,
+            format!(
+                "{name:?} {}; use lowercase letters, digits and . _ -",
+                crate::scripts::InvalidScriptName
+            ),
+        )
+    })?;
+
+    let table = entry
+        .as_table_like()
+        .ok_or_else(|| shaped_wrong(path, format!("[scripts.{name}] must be a table")))?;
+
+    for (key, _) in table.iter() {
+        if !LEGAL_SCRIPT_KEYS.contains(&key) {
+            return Err(script_error(
+                path,
+                format!("unknown key {key:?} in [scripts.{name}]"),
+            ));
+        }
+    }
+
+    Ok(Script {
+        command: read_command(path, &name, table)?,
+        points: read_points(path, &name, table)?,
+        name,
+    })
+}
+
+/// `argv = [...]` **or** `shell = "..."`, and never both or neither.
+fn read_command(
+    path: &Path,
+    name: &ScriptName,
+    table: &dyn toml_edit::TableLike,
+) -> Result<ScriptCommand, EngineError> {
+    let argv = table.get("argv");
+    let shell = table.get("shell");
+
+    match (argv, shell) {
+        (Some(_), Some(_)) => Err(script_error(
+            path,
+            format!("[scripts.{name}] has both argv and shell"),
+        )),
+        (None, None) => Err(script_error(
+            path,
+            format!("[scripts.{name}] has neither argv nor shell"),
+        )),
+        (Some(argv), None) => {
+            let words = argv.as_array().ok_or_else(|| {
+                script_error(path, format!("[scripts.{name}] argv must be an array"))
+            })?;
+
+            let argv: Option<Vec<String>> = words
+                .iter()
+                .map(|word| word.as_str().map(str::to_owned))
+                .collect();
+            let argv = argv.ok_or_else(|| {
+                script_error(
+                    path,
+                    format!("[scripts.{name}] argv must be an array of strings"),
+                )
+            })?;
+
+            if argv.is_empty() {
+                return Err(script_error(
+                    path,
+                    format!("[scripts.{name}] argv names no command"),
+                ));
+            }
+
+            Ok(ScriptCommand::Argv(argv))
+        }
+        (None, Some(shell)) => shell
+            .as_str()
+            .map(|line| ScriptCommand::Shell(line.to_owned()))
+            .ok_or_else(|| script_error(path, format!("[scripts.{name}] shell must be a string"))),
+    }
+}
+
+/// The points whose toggle is on, in the order [`ScriptPoint::ALL`] names them
+/// — so two files that bind the same points agree however they spelled them.
+fn read_points(
+    path: &Path,
+    name: &ScriptName,
+    table: &dyn toml_edit::TableLike,
+) -> Result<Vec<ScriptPoint>, EngineError> {
+    let mut points = Vec::new();
+
+    for point in ScriptPoint::ALL {
+        let Some(toggle) = table.get(point.key()) else {
+            continue;
+        };
+        let on = toggle.as_bool().ok_or_else(|| {
+            script_error(
+                path,
+                format!("[scripts.{name}] {} must be true or false", point.key()),
+            )
+        })?;
+
+        if on {
+            points.push(point);
+        }
+    }
+
+    Ok(points)
+}
+
 /// The path part of a git URL, whatever transport spells it.
 ///
 /// Three shapes, and git accepts all of them: `scheme://host/path`,
@@ -366,6 +541,27 @@ fn source_error(path: &Path, message: impl Into<String>) -> EngineError {
         path: path.to_path_buf(),
         message: message.into(),
         legal_keys: LEGAL_SOURCE_KEYS
+            .iter()
+            .map(|key| (*key).to_owned())
+            .collect(),
+    }
+}
+
+/// A `[scripts]` failure the legal-keys remedy would not answer.
+fn shaped_wrong(path: &Path, message: impl Into<String>) -> EngineError {
+    EngineError::ParseError {
+        path: path.to_path_buf(),
+        message: message.into(),
+        legal_keys: Vec::new(),
+    }
+}
+
+/// A `[scripts.<name>]` key, toggle or command form that is not one.
+fn script_error(path: &Path, message: impl Into<String>) -> EngineError {
+    EngineError::ParseError {
+        path: path.to_path_buf(),
+        message: message.into(),
+        legal_keys: LEGAL_SCRIPT_KEYS
             .iter()
             .map(|key| (*key).to_owned())
             .collect(),
@@ -465,19 +661,196 @@ mod tests {
     }
 
     #[test]
-    fn a_scripts_table_is_legal_and_left_alone() {
-        // Scripts arrive with `bp run`; refusing a file that declares them
-        // would refuse a file this schema says is valid.
-        let text = concat!(
-            "version = 1\nname = \"codestyle\"\n\n",
-            "[source]\ntype = \"owned\"\nurl = \"git@host:acme/codestyle.git\"\n\n",
-            "[scripts.install]\nshell = \"pnpm i\"\npost_worktree_create = true\n",
-        );
+    fn scripts_are_read_in_declaration_order_with_their_points_and_their_commands() {
+        let file = ProjectFile::parse(Path::new(PATH), &with_scripts()).unwrap();
 
         assert_eq!(
-            ProjectFile::parse(Path::new(PATH), text).unwrap().name,
-            ProjectName::parse("codestyle").unwrap()
+            file.scripts
+                .iter()
+                .map(|script| script.name.to_string())
+                .collect::<Vec<String>>(),
+            ["link-alfonz", "install", "stop-stack", "reset-db"],
+            "declaration order is execution order, so it is what the file is read in"
         );
+        assert_eq!(
+            file.scripts[0].command,
+            ScriptCommand::Argv(vec![
+                "ln".to_owned(),
+                "-s".to_owned(),
+                "../../.alfonz".to_owned(),
+                ".alfonz".to_owned(),
+            ])
+        );
+        assert_eq!(
+            file.scripts[1].command,
+            ScriptCommand::Shell("pnpm i && pnpm build".to_owned())
+        );
+        assert_eq!(
+            file.scripts[3].points,
+            Vec::new(),
+            "a script bound to no point is legal"
+        );
+    }
+
+    #[test]
+    fn the_resolved_per_point_sequence_is_declaration_order_within_each_point() {
+        let file = ProjectFile::parse(Path::new(PATH), &with_scripts()).unwrap();
+
+        assert_eq!(
+            named(file.at(ScriptPoint::PostWorktreeCreate)),
+            ["link-alfonz", "install"]
+        );
+        assert_eq!(
+            named(file.at(ScriptPoint::PreWorktreeRemove)),
+            ["stop-stack"]
+        );
+    }
+
+    #[test]
+    fn an_unknown_key_in_a_script_table_is_a_parse_error_listing_what_was_legal() {
+        let text = format!(
+            "{}\n[scripts.install]\nshell = \"pnpm i\"\npost_worktree_created = true\n",
+            header()
+        );
+
+        let envelope = ProjectFile::parse(Path::new(PATH), &text)
+            .unwrap_err()
+            .envelope();
+
+        assert_eq!(envelope.error, "parse_error");
+        assert_eq!(
+            envelope.message,
+            format!("{PATH}: unknown key \"post_worktree_created\" in [scripts.install]")
+        );
+        assert_eq!(
+            envelope.remedy.as_deref(),
+            Some("Legal keys are argv, shell, post_worktree_create and pre_worktree_remove.")
+        );
+    }
+
+    #[test]
+    fn a_script_with_neither_command_form_or_with_both_is_a_parse_error() {
+        let cases = [
+            (
+                "[scripts.install]\npost_worktree_create = true\n",
+                "neither",
+            ),
+            (
+                "[scripts.install]\nargv = [\"ln\"]\nshell = \"pnpm i\"\n",
+                "both",
+            ),
+        ];
+
+        for (table, expected) in cases {
+            let error =
+                ProjectFile::parse(Path::new(PATH), &format!("{}\n{table}", header())).unwrap_err();
+
+            assert!(
+                error.envelope().message.contains(expected),
+                "for {table:?}: {}",
+                error.envelope().message
+            );
+        }
+    }
+
+    #[test]
+    fn a_point_toggle_that_is_not_a_boolean_is_a_parse_error_naming_it() {
+        let text = format!(
+            "{}\n[scripts.install]\nshell = \"pnpm i\"\npost_worktree_create = \"yes\"\n",
+            header()
+        );
+
+        let error = ProjectFile::parse(Path::new(PATH), &text).unwrap_err();
+
+        assert!(
+            error
+                .envelope()
+                .message
+                .contains("post_worktree_create must be true or false"),
+            "got {}",
+            error.envelope().message
+        );
+    }
+
+    #[test]
+    fn a_script_name_a_path_could_swallow_is_refused_before_it_reaches_one() {
+        // The log is named after the script, so a name outside the plane-id
+        // character set is never trusted into a path.
+        let text = format!(
+            "{}\n[scripts.\"../../etc/passwd\"]\nshell = \"true\"\n",
+            header()
+        );
+
+        let error = ProjectFile::parse(Path::new(PATH), &text).unwrap_err();
+
+        assert!(
+            error
+                .envelope()
+                .message
+                .contains("is not a valid script name"),
+            "got {}",
+            error.envelope().message
+        );
+    }
+
+    #[test]
+    fn rendering_is_for_a_new_file_only_and_drops_a_scripts_table() {
+        // Pinned rather than fixed. A change to a file that already exists is a
+        // `toml_edit` read-modify-write that touches `name` and `source` and
+        // never `[scripts]` — which is what keeps declaration order and a
+        // user's comments — so a verb that reaches for `render()` on a file it
+        // read is reaching for the wrong tool, and this is where it finds out.
+        let file = ProjectFile::parse(Path::new(PATH), &with_scripts()).unwrap();
+
+        assert_eq!(file.scripts.len(), 4);
+        assert!(!file.render().contains("scripts"), "got {}", file.render());
+    }
+
+    #[test]
+    fn a_toggle_switched_off_binds_nothing() {
+        let text = format!(
+            "{}\n[scripts.install]\nshell = \"pnpm i\"\npost_worktree_create = false\n",
+            header()
+        );
+
+        let file = ProjectFile::parse(Path::new(PATH), &text).unwrap();
+
+        assert!(file.at(ScriptPoint::PostWorktreeCreate).is_empty());
+    }
+
+    fn header() -> String {
+        concat!(
+            "version = 1\nname = \"codestyle\"\n\n",
+            "[source]\ntype = \"owned\"\nurl = \"git@host:acme/codestyle.git\"\n",
+        )
+        .to_owned()
+    }
+
+    fn with_scripts() -> String {
+        format!(
+            "{}\n{}",
+            header(),
+            concat!(
+                "[scripts.link-alfonz]\n",
+                "argv = [\"ln\", \"-s\", \"../../.alfonz\", \".alfonz\"]\n",
+                "post_worktree_create = true\n\n",
+                "[scripts.install]\n",
+                "shell = \"pnpm i && pnpm build\"\n",
+                "post_worktree_create = true\n\n",
+                "[scripts.stop-stack]\n",
+                "shell = \"docker compose down --remove-orphans\"\n",
+                "pre_worktree_remove = true\n\n",
+                "[scripts.reset-db]\n",
+                "shell = \"pnpm db:reset && seed-fixtures\"\n",
+            )
+        )
+    }
+
+    fn named(scripts: Vec<&Script>) -> Vec<String> {
+        scripts
+            .iter()
+            .map(|script| script.name.to_string())
+            .collect()
     }
 
     #[test]

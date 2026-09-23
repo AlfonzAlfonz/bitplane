@@ -4,14 +4,9 @@ title: bp rm
 
 # `bp rm`
 
-:::in-progress
+:::implemented
 
-The fan-out, the five refusals, `--waive`, the converging `already gone`
-row and branch deletion for owned projects all work. One part is not there
-yet:
-
-- **`--no-scripts` is not accepted.** No `pre_worktree_remove` script
-  runs, so there is nothing to skip.
+Everything on this page works as described.
 
 :::
 

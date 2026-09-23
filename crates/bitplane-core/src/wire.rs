@@ -50,6 +50,8 @@ pub enum Request {
     PlaneDestroy(PlaneDestroyRequest),
     /// Take named members out of a plane, leaving the rest alone.
     PlaneRemove(PlaneRemoveRequest),
+    /// Run a project's declared scripts, by name, on demand.
+    PlaneScripts(PlaneScriptsRequest),
 }
 
 /// One answer. Never a scalar count: a fan-out answers with a vector of keyed
@@ -67,6 +69,7 @@ pub enum Response {
     ProjectFetch(ProjectFetched),
     PlaneDestroy(PlaneDestroyed),
     PlaneRemove(PlaneRemoved),
+    PlaneScripts(ScriptsRun),
 }
 
 impl Response {
@@ -79,11 +82,12 @@ impl Response {
         match self {
             // Neither a teardown nor a build reports drift: both say what they
             // did in their rows, and a failure is an envelope rather than an
-            // exit code to look up.
+            // exit code to look up. A script run is the same.
             Response::PlaneCreate(_)
             | Response::PlaneAdd(_)
             | Response::PlaneDestroy(_)
-            | Response::PlaneRemove(_) => false,
+            | Response::PlaneRemove(_)
+            | Response::PlaneScripts(_) => false,
             Response::PlaneList(list) => {
                 list.planes.iter().any(|plane| plane.health.has_findings())
             }
@@ -122,6 +126,9 @@ pub struct PlaneCreateRequest {
     /// so the intent stays a pure statement of intent and `Resolve` with
     /// `fetch: false` can be refused at request validation (ADR-0007).
     pub fetch: bool,
+    /// Whether to run each member's `post_worktree_create` scripts once the
+    /// plane is complete.
+    pub run_scripts: bool,
 }
 
 /// Put members into a plane that already exists.
@@ -143,6 +150,8 @@ pub struct PlaneAddRequest {
     pub branch: Option<String>,
     pub intent: BranchIntent,
     pub fetch: bool,
+    /// Whether to run each member's `post_worktree_create` scripts.
+    pub run_scripts: bool,
 }
 
 /// Whether the branch asked for must exist, must not, or either.
@@ -178,6 +187,9 @@ pub struct PlaneCreated {
     /// same thing through `CreateAborted`'s own `remnant`, and a plane that was
     /// built has nothing to leave behind.
     pub remnant: bool,
+    /// What each `post_worktree_create` script did, in the order they ran.
+    /// Empty where no member declared one, or where `--no-scripts` was given.
+    pub scripts: Vec<ScriptOutcome>,
 }
 
 /// Members that were put into a plane that already existed.
@@ -200,6 +212,8 @@ pub struct PlaneAdded {
     /// interrupted run can answer `Ok` with this set — a failed one says the
     /// same thing through `AddAborted`'s own `remnant`.
     pub remnant: bool,
+    /// What each `post_worktree_create` script did, in the order they ran.
+    pub scripts: Vec<ScriptOutcome>,
 }
 
 /// One member's worktree.
@@ -466,6 +480,13 @@ pub struct PlaneDestroyRequest {
     /// The reasons this invocation accepts losing work over. Granted per reason
     /// and per invocation; there is no blanket force flag.
     pub waive: Vec<Reason>,
+    /// Whether to run each member's `pre_worktree_remove` scripts.
+    ///
+    /// **A `project.toml` can never make a plane undestroyable**, because this
+    /// is on the request: a blocking pre-script is switched off here and the
+    /// teardown proceeds. That is the whole answer, and it needed no new
+    /// mechanism (ADR-0007).
+    pub run_scripts: bool,
 }
 
 /// Take named members out of a plane.
@@ -476,6 +497,102 @@ pub struct PlaneRemoveRequest {
     /// is already on a branch.
     pub members: Vec<String>,
     pub waive: Vec<Reason>,
+    /// Whether to run the named members' `pre_worktree_remove` scripts.
+    ///
+    /// ADR-0006 made `plane_remove` *identical* to `destroy`, so its absence
+    /// here was an oversight rather than a decision (ADR-0007).
+    pub run_scripts: bool,
+}
+
+/// Run a project's declared scripts, by name, on demand.
+///
+/// On [`Engine`] and not [`Reader`]: it runs arbitrary user commands and writes
+/// logs, and *"a read never writes"* is supposed to be checkable by reading the
+/// trait (ADR-0003).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaneScriptsRequest {
+    pub plane: PlaneRef,
+    /// The script names, run in **request order**: unlike a lifecycle point,
+    /// the caller named these, so that is the order they meant. Non-empty.
+    pub names: Vec<String>,
+    /// The projects whose scripts to run. **Mandatory** — nobody gets a
+    /// six-repo script run by typing nothing — and each must be a member.
+    pub projects: Vec<ProjectName>,
+}
+
+/// What a script run did, script by script.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptsRun {
+    pub id: String,
+    pub directory: PathBuf,
+    /// One row per script that ran, in the order they ran.
+    pub scripts: Vec<ScriptOutcome>,
+}
+
+/// One script, and what became of it.
+///
+/// `finished_at` is **not optional**, so a script killed mid-run leaves no
+/// record at all: "started but never finished" is unrepresentable, and Ctrl-C
+/// is the escape (ADR-0004).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptOutcome {
+    /// The script's own name, which every script has by construction.
+    pub name: String,
+    /// The project that declared it. Always present today; the `Option` is room
+    /// to add plane-level scripts later without a contract change.
+    pub project: Option<ProjectName>,
+    /// Where the merged output was tee'd. bitplane never cleans these up;
+    /// `destroy` removes them with the plane directory.
+    pub log: PathBuf,
+    /// RFC 3339, in UTC.
+    pub finished_at: String,
+    pub duration_ms: u64,
+    /// Flattened, so a row is one flat object on the wire — the same shape
+    /// [`PerMember`] gives an outcome.
+    #[serde(flatten)]
+    pub result: ScriptResult,
+}
+
+/// Whether a script worked, and what to say if it did not.
+///
+/// Deliberately **not** `#[non_exhaustive]`, for the same reason [`MemberWork`]
+/// is not: every surface renders it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum ScriptResult {
+    /// It exited zero.
+    Ok,
+    /// It exited non-zero, was ended by a signal, or never started.
+    Failed {
+        /// The process's exit status, absent where there was none to have.
+        code: Option<i32>,
+        /// The clause a message prints after the script's name: `exited 1`.
+        detail: String,
+    },
+}
+
+impl ScriptOutcome {
+    /// Whether this script exited zero.
+    pub fn succeeded(&self) -> bool {
+        matches!(self.result, ScriptResult::Ok)
+    }
+
+    /// The clause a message prints after the script's name, where it did not
+    /// work.
+    pub fn failure(&self) -> Option<&str> {
+        match &self.result {
+            ScriptResult::Ok => None,
+            ScriptResult::Failed { detail, .. } => Some(detail),
+        }
+    }
+
+    /// The project, rendered as bitplane prints one.
+    pub fn subject(&self) -> String {
+        match &self.project {
+            Some(project) => format!("{PROJECT_SIGIL}{project}"),
+            None => String::new(),
+        }
+    }
 }
 
 /// A plane that was taken apart.
@@ -495,6 +612,9 @@ pub struct PlaneDestroyed {
     /// Whether Ctrl-C stopped the run. `destroy` converges, so the rows are
     /// what is left to do rather than something to unwind.
     pub interrupted: bool,
+    /// What each `pre_worktree_remove` script did. Empty on a latched plane,
+    /// where the point is skipped entirely.
+    pub scripts: Vec<ScriptOutcome>,
 }
 
 /// Members that were taken out of a plane.
@@ -505,6 +625,8 @@ pub struct PlaneRemoved {
     /// One row per member **named**, in the order they were named.
     pub members: Vec<PerMember<RemovedMember>>,
     pub interrupted: bool,
+    /// What each `pre_worktree_remove` script did.
+    pub scripts: Vec<ScriptOutcome>,
 }
 
 /// One member's worktree, gone.
@@ -561,6 +683,7 @@ pub fn dispatch<E: Engine + ?Sized>(engine: &E, request: Request) -> Result<Resp
         Request::ProjectFetch(request) => engine.project_fetch(request).map(Response::ProjectFetch),
         Request::PlaneDestroy(request) => engine.plane_destroy(request).map(Response::PlaneDestroy),
         Request::PlaneRemove(request) => engine.plane_remove(request).map(Response::PlaneRemove),
+        Request::PlaneScripts(request) => engine.plane_scripts(request).map(Response::PlaneScripts),
     }
 }
 
@@ -576,6 +699,7 @@ mod tests {
             id: Some("auth-work".to_owned()),
             intent: BranchIntent::RequireNew,
             fetch: true,
+            run_scripts: true,
         });
 
         let json = serde_json::to_string(&request).unwrap();
@@ -591,6 +715,7 @@ mod tests {
                 id: "auth-work".to_owned(),
             },
             waive: vec![Reason::Uncommitted, Reason::Unpushed],
+            run_scripts: true,
         });
 
         let json = serde_json::to_string(&request).unwrap();

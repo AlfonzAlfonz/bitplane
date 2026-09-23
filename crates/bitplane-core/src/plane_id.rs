@@ -47,7 +47,7 @@ impl PlaneId {
     /// An id read from a file or generated. Checks the charset and nothing
     /// else: `plane.toml` legitimately holds generated ids.
     pub fn parse(id: &str) -> Result<PlaneId, EngineError> {
-        if is_well_formed(id) {
+        if is_well_formed_id(id) {
             Ok(PlaneId(id.to_owned()))
         } else {
             Err(EngineError::InvalidPlaneId { id: id.to_owned() })
@@ -102,7 +102,11 @@ impl TryFrom<String> for PlaneId {
 }
 
 /// `[a-z0-9][a-z0-9._-]*`, 64 characters at most.
-fn is_well_formed(id: &str) -> bool {
+///
+/// Public because a **script name** is checked against exactly this set, so
+/// that a user-chosen name is never trusted into a path (ADR-0007). One
+/// definition rather than two that could drift apart.
+pub fn is_well_formed_id(id: &str) -> bool {
     let mut characters = id.chars();
 
     let Some(first) = characters.next() else {

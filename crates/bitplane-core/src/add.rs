@@ -7,6 +7,7 @@
 //! 4. append the new entries to plane.toml
 //! 5. git worktree add, per member
 //! 6. on failure: force-remove only what this run made, drop only its entries
+//! 7. post_worktree_create scripts, for the members this run added
 //! ```
 //!
 //! **`add` cannot abort-and-remove the way `create` does**, because the plane
@@ -41,6 +42,7 @@ use crate::plane_file::{self, Member, PlaneFile};
 use crate::project_fetch::{self, FetchContext};
 use crate::read;
 use crate::repo::Git;
+use crate::scripts::{self, InPlane, ScriptContext, ScriptPoint, Stop};
 use crate::wire::{CreatedMember, PlaneAddRequest, PlaneAdded, ProjectFetchRequest};
 use crate::worktrees;
 
@@ -52,6 +54,8 @@ pub struct AddContext<'a> {
     pub home: Option<&'a Path>,
     pub interrupt: Interrupt,
     pub on_lock_wait: &'a (dyn Fn(&Path) + Sync),
+    /// Where merged script output goes as it arrives.
+    pub on_script_output: &'a (dyn Fn(&[u8]) + Sync),
 }
 
 /// Puts the members named into a plane, or puts none and leaves it as it was.
@@ -77,7 +81,7 @@ pub fn plane_add(
         fetch_first(&plan::fetchable(&planned), context)?;
     }
 
-    let _lock = plane.lock(context.on_lock_wait)?;
+    let lock = plane.lock(context.on_lock_wait)?;
 
     // Re-checked under the lock, against the file as it is now: the membership
     // read above was read without one, and two `bp add`s racing on one plane is
@@ -95,12 +99,38 @@ pub fn plane_add(
         return unwind(members, interrupted, &plane, &planned, context);
     }
 
+    // Released before the scripts run, for the reason `create` releases its
+    // own: the members have landed, no script touches `plane.toml`, and a
+    // script has no timeout.
+    drop(lock);
+
+    // Only this run's members: `add` sets nothing up for a member that was
+    // already there, whose scripts ran when it arrived.
+    let scripts = match request.run_scripts {
+        true => scripts::at_point(
+            ScriptPoint::PostWorktreeCreate,
+            &entries(&planned),
+            InPlane {
+                id: plane.id(),
+                directory: plane.path(),
+            },
+            Stop::Never,
+            &context.scripting(),
+        )?,
+        false => Vec::new(),
+    };
+
+    if let Some(failed) = crate::create::script_failure(&scripts) {
+        return Err(failed);
+    }
+
     Ok(PlaneAdded {
         id: plane.id().to_owned(),
         directory: plane.path().to_path_buf(),
         members,
-        interrupted: false,
+        interrupted: context.interrupt.is_raised(),
         remnant: false,
+        scripts,
     })
 }
 
@@ -258,6 +288,7 @@ fn unwind(
             members,
             interrupted: true,
             remnant: !restored,
+            scripts: Vec::new(),
         });
     }
 
@@ -317,6 +348,15 @@ impl AddContext<'_> {
             directories: self.directories,
             git: self.git,
             home: self.home,
+        }
+    }
+
+    /// What running a script needs out of this, and nothing else.
+    fn scripting(&self) -> ScriptContext<'_> {
+        ScriptContext {
+            directories: self.directories,
+            interrupt: self.interrupt,
+            output: self.on_script_output,
         }
     }
 }

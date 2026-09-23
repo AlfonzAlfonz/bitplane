@@ -16,7 +16,7 @@ use crate::member::PROJECT_SIGIL;
 use crate::outcome::{Outcome, PerMember};
 use crate::plane_id::GENERATED_ID_PREFIX;
 use crate::refusal::{Refusal, waive_flags};
-use crate::wire::{CreatedMember, PlaneRef, RemovedMember};
+use crate::wire::{CreatedMember, PlaneRef, RemovedMember, ScriptOutcome};
 
 /// What every bitplane failure looks like on the wire.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +245,34 @@ pub enum EngineError {
         operation: Teardown,
         members: Vec<PerMember<RemovedMember>>,
     },
+    /// A name no `[scripts.<name>]` in that project's file declares.
+    ScriptNotFound { project: String, name: String },
+    /// A script exited non-zero, and nothing was unwound.
+    ///
+    /// Raised by `create` and `add`, where by the time scripts run the plane is
+    /// complete and there is nothing left to stop, and by `bp run`, where there
+    /// never was. The two differ in one clause of the message and nothing else
+    /// — re-running the script is the only move either way (ADR-0007).
+    ScriptFailed {
+        /// Every script the run ran, in order. The failures are the problems.
+        outcomes: Vec<ScriptOutcome>,
+        /// Whether the worktrees survive this, which they do from `create` and
+        /// `add` and where there is no such news from `bp run`.
+        worktree_created: bool,
+    },
+    /// A `pre_worktree_remove` script exited non-zero, so **nothing was
+    /// removed**.
+    ///
+    /// A new variant rather than a sixth [`Refusal`]: refusals are
+    /// collected-before-anything-is-touched and waiver-shaped, and *a waiver
+    /// says "I accept losing **this** work, which I am looking at"*. A script's
+    /// exit code is a program's opinion, not work the user is looking at, so no
+    /// waiver covers it and `Waivers` stays at six (ADR-0007).
+    ScriptBlocked {
+        /// The whole pass, in order: what had already run when one blocked is
+        /// what the user has to unwind.
+        outcomes: Vec<ScriptOutcome>,
+    },
     /// A lock could not be taken in time. The one failure that means "try
     /// again" rather than "this did not work".
     LockTimeout { object: PathBuf },
@@ -334,6 +362,9 @@ impl EngineError {
             EngineError::PlaneIncomplete { .. } => "plane_incomplete",
             EngineError::ProjectNotInPlane { .. } => "project_not_in_plane",
             EngineError::RemovalFailed { .. } => "removal_failed",
+            EngineError::ScriptNotFound { .. } => "script_not_found",
+            EngineError::ScriptFailed { .. } => "script_failed",
+            EngineError::ScriptBlocked { .. } => "script_blocked",
             EngineError::LockTimeout { .. } => "lock_timeout",
             EngineError::Io { .. } => "io",
         }
@@ -368,7 +399,8 @@ impl EngineError {
             | EngineError::BranchIntentRequiresFetch { .. }
             | EngineError::BranchIntentUnmet { .. }
             | EngineError::BaseBranchUnresolved { .. }
-            | EngineError::ProjectNotInPlane { .. } => ExitCode::Usage,
+            | EngineError::ProjectNotInPlane { .. }
+            | EngineError::ScriptNotFound { .. } => ExitCode::Usage,
 
             EngineError::LockTimeout { .. } => ExitCode::Busy,
 
@@ -383,6 +415,8 @@ impl EngineError {
             | EngineError::Refused { .. }
             | EngineError::PlaneIncomplete { .. }
             | EngineError::RemovalFailed { .. }
+            | EngineError::ScriptFailed { .. }
+            | EngineError::ScriptBlocked { .. }
             | EngineError::Io { .. } => ExitCode::Failure,
         }
     }
@@ -446,6 +480,27 @@ impl EngineError {
             EngineError::RemovalFailed { members, .. } => {
                 members.iter().filter_map(problem_from_removal).collect()
             }
+            // Only the failures. A script that worked is not a problem, even
+            // though a blocked pass leaves its work behind to be unwound.
+            EngineError::ScriptFailed { outcomes, .. } => outcomes
+                .iter()
+                .filter_map(|outcome| {
+                    outcome.failure().map(|why| {
+                        Problem::about(
+                            outcome.subject(),
+                            format!("{} {why}; see {}", outcome.name, outcome.log.display()),
+                        )
+                    })
+                })
+                .collect(),
+            EngineError::ScriptBlocked { outcomes } => outcomes
+                .iter()
+                .filter_map(|outcome| {
+                    outcome.failure().map(|why| {
+                        Problem::about(outcome.subject(), format!("{} {why}", outcome.name))
+                    })
+                })
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -613,6 +668,21 @@ impl EngineError {
                  so re-running only finishes what is left.",
                 operation.verb()
             )),
+            EngineError::ScriptNotFound { project, .. } => Some(format!(
+                "Run bp project show {PROJECT_SIGIL}{project} to see the scripts it declares."
+            )),
+            // The same wherever it is raised: re-running the script is the only
+            // move either way, so the remedy names the one that failed first.
+            EngineError::ScriptFailed { outcomes, .. } => first_failure(outcomes).map(|outcome| {
+                format!(
+                    "See the log, fix the cause, then run bp run {} {}.",
+                    outcome.subject(),
+                    outcome.name
+                )
+            }),
+            EngineError::ScriptBlocked { .. } => {
+                Some("Fix the script, or re-run with --no-scripts.".to_owned())
+            }
             EngineError::InvalidRequest { .. }
             | EngineError::GitFailed { .. }
             | EngineError::Io { .. } => None,
@@ -803,6 +873,38 @@ impl fmt::Display for EngineError {
                 members.iter().filter(|row| row.is_failure()).count(),
                 members.len(),
             ),
+            EngineError::ScriptNotFound { project, name } => {
+                write!(f, "{PROJECT_SIGIL}{project} has no script called {name}")
+            }
+            EngineError::ScriptFailed {
+                outcomes,
+                worktree_created,
+            } => {
+                let news = match worktree_created {
+                    true => "; the worktree was created",
+                    false => "",
+                };
+                match failures(outcomes).as_slice() {
+                    [only] => write!(
+                        f,
+                        "{} {} in {}{news}",
+                        only.name,
+                        only.failure().unwrap_or_default(),
+                        only.subject()
+                    ),
+                    several => write!(f, "{} scripts failed{news}", several.len()),
+                }
+            }
+            EngineError::ScriptBlocked { outcomes } => match first_failure(outcomes) {
+                Some(blocked) => write!(
+                    f,
+                    "{} {} in {}; nothing was removed",
+                    blocked.name,
+                    blocked.failure().unwrap_or_default(),
+                    blocked.subject()
+                ),
+                None => f.write_str("a script blocked the removal; nothing was removed"),
+            },
             EngineError::LockTimeout { object } => {
                 write!(f, "timed out waiting for the lock on {}", object.display())
             }
@@ -857,6 +959,19 @@ fn problem_from_rollback(row: &PerMember<()>) -> Option<Problem> {
         )),
         _ => None,
     }
+}
+
+/// The scripts that did not work, in the order they ran.
+fn failures(outcomes: &[ScriptOutcome]) -> Vec<&ScriptOutcome> {
+    outcomes
+        .iter()
+        .filter(|outcome| !outcome.succeeded())
+        .collect()
+}
+
+/// The one a message and a remedy speak about: the first that did not work.
+fn first_failure(outcomes: &[ScriptOutcome]) -> Option<&ScriptOutcome> {
+    outcomes.iter().find(|outcome| !outcome.succeeded())
 }
 
 /// `a`, `a and b`, `a, b and c` — the form the remedies are written in.
