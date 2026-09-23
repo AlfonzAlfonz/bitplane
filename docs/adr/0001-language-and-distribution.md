@@ -106,11 +106,11 @@ This scopes the host universe: bitplane targets **hosts you control** — your o
 
 ### Licence
 
-**`GPL-2.0-or-later`.** The repo goes public.
+**`MIT`.** The repo goes public.
 
-The `-or-later` suffix is load-bearing: Apache-2.0 is incompatible with GPLv2 and compatible only from GPLv3 onward, and Rust's ecosystem is overwhelmingly dual `MIT OR Apache-2.0` (so the MIT arm is selectable) but does contain Apache-2.0-only crates. `-or-later` costs nothing and removes that landmine permanently. It also survives the point at which relicensing stops being unilateral — trivial while sole copyright holder, impossible once outside contributions land without a CLA.
+MIT matches the Rust ecosystem's overwhelmingly `MIT OR Apache-2.0` dependency tree, so no dependency's licence can conflict with ours, and it places no conditions on anyone driving `bp` or embedding `bitplane-core`.
 
-Copyleft does **not** break the map's reference-implementation constraint. T3 Code or Orca would shell out to the `bp` binary; separate processes communicating over argv and stdout are not a derivative work, so a proprietary tool can drive bitplane under any GPL. Copyleft would only bite someone embedding `bitplane-core`, which the map already places out of scope.
+_Amended: originally `GPL-2.0-or-later`. Relicensed to MIT while still sole copyright holder, before outside contributions made relicensing non-unilateral._
 
 ## Consequences
 

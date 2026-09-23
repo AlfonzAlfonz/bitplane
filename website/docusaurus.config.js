@@ -100,7 +100,7 @@ const config = {
       footer: {
         style: 'dark',
         links: [],
-        copyright: `Copyright © ${new Date().getFullYear()} Denis Homolík. GPL-2.0-or-later.`,
+        copyright: `Copyright © ${new Date().getFullYear()} Denis Homolík. MIT.`,
       },
       prism: {
         theme: prismThemes.github,

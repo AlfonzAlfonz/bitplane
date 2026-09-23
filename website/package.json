@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "The bitplane documentation site. Not part of the Cargo workspace and not shipped with the binary.",
-  "license": "GPL-2.0-or-later",
+  "license": "MIT",
   "packageManager": "pnpm@11.5.0",
   "scripts": {
     "start": "docusaurus start",
