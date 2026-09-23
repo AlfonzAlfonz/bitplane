@@ -17,50 +17,23 @@
 [workspace]
 members = ["cargo:."]
 
+# Config for 'dist'
 [dist]
-# Pinned, like the Rust toolchain: CI installs exactly this dist and no other,
-# so a release built today and a release built next year are built the same way.
-cargo-dist-version = "0.33.0"
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
 ci = "github"
+# Where to host releases
 hosting = "github"
-
-# ADR-0001's four, and no more. No native Windows: the hook model runs user
-# commands through `sh -c` and the whole layout assumes POSIX. Both musl targets
-# are here to link statically; `.github/workflows/rust.yml` proves that they do.
-targets = [
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
-    "x86_64-unknown-linux-musl",
-    "aarch64-unknown-linux-musl",
-]
-
-# No `homebrew`: a tap has to be kept alive for as long as anyone uses it, and
-# it gets made once there are users asking for it. No `powershell` or `msi`:
-# there is no Windows build to install.
-installers = ["shell", "npm"]
-
-# The audience is developers who use git worktrees — not developers who have
-# Rust, so dist's `CARGO_HOME` default would install into a directory that only
-# exists on machines that did not need this channel.
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-apple-darwin", "x86_64-unknown-linux-musl"]
+# The installers to generate for each app
+installers = ["shell"]
+# Path that installers should place binaries in
 install-path = "~/.local/bin"
+# Whether to install an updater program
 install-updater = false
-
-# The crate is `bitplane-cli` because the workspace splits core from CLI; the
-# thing people install is `bitplane`. npm is the one channel where that
-# distinction would leak into a name a user types.
+# The npm package should have this name
 npm-package = "bitplane"
-
-# Publishing the npm package is what makes `npm install -g bitplane` mean
-# anything; building it only attaches a tarball to the release. This needs an
-# `NPM_TOKEN` repository secret, which is a one-time manual step — see
-# CONTRIBUTING.md.
-#
-# `homebrew` is deliberately absent here as well as from `installers`, and
-# crates.io is not a dist channel at all: that one is refused by
-# `publish = false` on both crates.
-publish-jobs = ["npm"]
-
-# Build every target on every pull request, not just `dist plan`. This is the
-# check that catches a dependency pulling in a shared library, and it catches it
-# by running the same build the release runs rather than an approximation of it.
+# Which actions to run on pull requests
 pr-run-mode = "upload"
