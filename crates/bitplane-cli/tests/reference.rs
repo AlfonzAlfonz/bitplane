@@ -60,112 +60,124 @@ macro_rules! pages {
     };
 }
 
-pages! {
-    exit_codes => "exit-codes.md",
-    global_flags => "global-flags.md",
-    member_syntax => "member-syntax.md",
-    refusals_and_waivers => "refusals-and-waivers.md",
-    plane_add => "plane/add.md",
-    plane_create => "plane/create.md",
-    plane_destroy => "plane/destroy.md",
-    plane_doctor => "plane/doctor.md",
-    plane_list => "plane/list.md",
-    plane_rename => "plane/rename.md",
-    plane_repair => "plane/repair.md",
-    plane_rm => "plane/rm.md",
-    plane_run => "plane/run.md",
-    plane_show => "plane/show.md",
-    plane_status => "plane/status.md",
-    project_add => "project/add.md",
-    project_adopt => "project/adopt.md",
-    project_fetch => "project/fetch.md",
-    project_list => "project/list.md",
-    project_rename => "project/rename.md",
-    project_rm => "project/rm.md",
-    project_show => "project/show.md",
-}
-
-#[test]
-fn every_reference_page_is_covered_by_a_test() {
-    let missing: Vec<String> = docs::pages()
-        .iter()
-        .map(|page| page.path.clone())
-        .filter(|path| !COVERED.contains(&path.as_str()))
-        .collect();
-
-    assert!(
-        missing.is_empty(),
-        "these reference pages have no snapshot test:\n  {}\n\
-         Add them to the `pages!` list in this file.",
-        missing.join("\n  ")
-    );
-}
-
-/// A flag on a page is a flag the binary takes — unless the page says it is not
-/// one yet, in which case it had better still not be.
+/// Every test the suite runs, under one module, so its names all begin
+/// `reference::`.
 ///
-/// This is the half of the suite the examples cannot cover: a flag can be
-/// documented, never wired up, and never appear in an example. Reading the
-/// page's own admonition rather than a list kept here means the exception dies
-/// with the sentence that granted it.
-#[test]
-fn every_documented_flag_is_a_flag_the_binary_takes() {
-    let mut problems = Vec::new();
+/// That prefix is what lets CI report the documentation separately from the
+/// code without keeping a second list of targets: the generic job runs
+/// `cargo test --workspace -- --skip reference::` and this one runs
+/// `cargo test --test reference`. Locally `cargo test --workspace` is still
+/// everything.
+mod reference {
+    use super::*;
 
-    for page in docs::pages() {
-        let Some(command) = command_of(&page) else {
-            continue;
-        };
-        if page.status == docs::Status::NotImplemented {
-            continue;
-        }
-
-        let world = World::new("reference-flags");
-        let named = flags_in(&world.run(&format!("{command} --help")).stdout);
-
-        for flag in &page.flags {
-            let excused = page.not_accepted.contains(flag);
-            match (named.contains(flag), excused) {
-                (false, false) => problems.push(format!(
-                    "{}: `{command}` documents {flag}, which `{command} --help` does not name",
-                    page.path
-                )),
-                (true, true) => problems.push(format!(
-                    "{}: the admonition says {flag} is not accepted, and `{command} --help` \
-                     names it.\n  The ticket that built it updates the admonition.",
-                    page.path
-                )),
-                _ => {}
-            }
-        }
+    pages! {
+        exit_codes => "exit-codes.md",
+        global_flags => "global-flags.md",
+        member_syntax => "member-syntax.md",
+        refusals_and_waivers => "refusals-and-waivers.md",
+        plane_add => "plane/add.md",
+        plane_create => "plane/create.md",
+        plane_destroy => "plane/destroy.md",
+        plane_doctor => "plane/doctor.md",
+        plane_list => "plane/list.md",
+        plane_rename => "plane/rename.md",
+        plane_repair => "plane/repair.md",
+        plane_rm => "plane/rm.md",
+        plane_run => "plane/run.md",
+        plane_show => "plane/show.md",
+        plane_status => "plane/status.md",
+        project_add => "project/add.md",
+        project_adopt => "project/adopt.md",
+        project_fetch => "project/fetch.md",
+        project_list => "project/list.md",
+        project_rename => "project/rename.md",
+        project_rm => "project/rm.md",
+        project_show => "project/show.md",
     }
 
-    assert!(problems.is_empty(), "{}", problems.join("\n"));
-}
+    #[test]
+    fn every_reference_page_is_covered_by_a_test() {
+        let missing: Vec<String> = docs::pages()
+            .iter()
+            .map(|page| page.path.clone())
+            .filter(|path| !COVERED.contains(&path.as_str()))
+            .collect();
 
-/// A marker is a claim about the world, and a claim with no reason behind it
-/// is how an expected failure becomes permanent.
-#[test]
-fn every_marked_case_says_why_it_is_marked() {
-    let mut problems = Vec::new();
+        assert!(
+            missing.is_empty(),
+            "these reference pages have no snapshot test:\n  {}\n\
+             Add them to the `pages!` list in this file.",
+            missing.join("\n  ")
+        );
+    }
 
-    for page in docs::pages() {
-        for case in cases::of(&page.path) {
-            let why = match case.expectation {
-                Expectation::Matches => continue,
-                Expectation::NotBuilt(why) | Expectation::Unstageable(why) => why,
+    /// A flag on a page is a flag the binary takes — unless the page says it is not
+    /// one yet, in which case it had better still not be.
+    ///
+    /// This is the half of the suite the examples cannot cover: a flag can be
+    /// documented, never wired up, and never appear in an example. Reading the
+    /// page's own admonition rather than a list kept here means the exception dies
+    /// with the sentence that granted it.
+    #[test]
+    fn every_documented_flag_is_a_flag_the_binary_takes() {
+        let mut problems = Vec::new();
+
+        for page in docs::pages() {
+            let Some(command) = command_of(&page) else {
+                continue;
             };
+            if page.status == docs::Status::NotImplemented {
+                continue;
+            }
 
-            if why.split_whitespace().count() < 4 {
-                problems.push(format!(
-                    "{}: \"{}\" is marked with {why:?}, which does not say why",
-                    page.path, case.example
-                ));
+            let world = World::new("reference-flags");
+            let named = flags_in(&world.run(&format!("{command} --help")).stdout);
+
+            for flag in &page.flags {
+                let excused = page.not_accepted.contains(flag);
+                match (named.contains(flag), excused) {
+                    (false, false) => problems.push(format!(
+                        "{}: `{command}` documents {flag}, which `{command} --help` does not name",
+                        page.path
+                    )),
+                    (true, true) => problems.push(format!(
+                        "{}: the admonition says {flag} is not accepted, and `{command} --help` \
+                         names it.\n  The ticket that built it updates the admonition.",
+                        page.path
+                    )),
+                    _ => {}
+                }
             }
         }
+
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
-    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    /// A marker is a claim about the world, and a claim with no reason behind it
+    /// is how an expected failure becomes permanent.
+    #[test]
+    fn every_marked_case_says_why_it_is_marked() {
+        let mut problems = Vec::new();
+
+        for page in docs::pages() {
+            for case in cases::of(&page.path) {
+                let why = match case.expectation {
+                    Expectation::Matches => continue,
+                    Expectation::NotBuilt(why) | Expectation::Unstageable(why) => why,
+                };
+
+                if why.split_whitespace().count() < 4 {
+                    problems.push(format!(
+                        "{}: \"{}\" is marked with {why:?}, which does not say why",
+                        page.path, case.example
+                    ));
+                }
+            }
+        }
+
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
 }
 
 /// One page: every example it documents, against the binary.

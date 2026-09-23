@@ -18,8 +18,12 @@ Both need a real `git` of 2.36 or newer on `PATH`. The suites build real
 repositories and real worktrees in a scratch directory of their own; nothing is
 stubbed, because a fake git would only test bitplane's idea of git.
 
-CI runs `cargo fmt --all -- --check`, `cargo clippy --all-targets -- --deny
-warnings` and `cargo test --workspace` on every pull request.
+CI splits those into three jobs, because the failures mean different things:
+`lint` is `cargo fmt --all -- --check` and `cargo clippy --all-targets --
+--deny warnings`; `test` is `cargo test --workspace -- --skip reference::`;
+and `reference` is `cargo test --test reference`. Every test in the snapshot
+suite lives under a `reference::` module so the split needs no list of targets
+to keep up to date.
 
 ## The reference is the specification, and it is executable
 

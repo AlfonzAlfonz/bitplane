@@ -1,10 +1,15 @@
 # Builds and tests the workspace on every pull request, and holds the musl
 # builds to ADR-0001's linking rule.
 #
-# The reference snapshot suite runs here, which is what makes a disagreement
-# between `website/docs/reference/` and the binary a failing check rather than
-# something a reader finds later. That is why this workflow has no `paths`
-# filter: a change to a page with no change to any code can break it.
+# Testing is two jobs, because the two failures mean different things. `test`
+# going red is the code; `reference` going red is the code and the
+# documentation disagreeing, which a page can cause with no Rust change at all.
+# That is also why this workflow has no `paths` filter.
+#
+# The split is by test name rather than by target list: every test in
+# `tests/reference.rs` is under a `reference::` module, so `test` skips exactly
+# those and a new test file elsewhere is picked up without editing this file.
+# Locally, `cargo test --workspace` is still everything.
 
 name: rust
 
@@ -22,15 +27,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # The snapshot suite builds real worktrees, so the runner's git is part
-      # of what is under test. Recorded rather than assumed: bitplane requires
-      # 2.36 or newer and says so at exit 4.
-      - run: git --version
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -42,7 +42,38 @@ jobs:
 
       - run: cargo clippy --all-targets -- --deny warnings
 
-      - run: cargo test --workspace
+  test:
+    name: test (engine and CLI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tests build real repositories and real worktrees, so the runner's
+      # git is part of what is under test. Recorded rather than assumed:
+      # bitplane requires 2.36 or newer and says so at exit 4.
+      - run: git --version
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --workspace -- --skip reference::
+
+  reference:
+    name: test (the reference runs itself)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: git --version
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Every documented example, against the binary. Red here means a page
+      # under website/docs/reference/ and `bp` disagree — see CONTRIBUTING.md.
+      - run: cargo test --test reference
 
   # `release.yml` is generated from `dist-workspace.toml`, and a generator's
   # output stops matching its input the moment somebody edits the input alone.
