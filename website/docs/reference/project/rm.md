@@ -45,9 +45,29 @@ There is no `--waive`. The one refusal this command raises cannot be waived.
 1. Scan the planes directory for planes holding this project. If any do,
    **refuse**.
 2. Delete the project directory.
+3. **Prune the intermediate directories it lived under, bottom-up**, stopping at
+   the first one that is not empty.
 
 For an **adopted** project, step 2 deletes the project directory only. Your
 checkout is untouched — `bp` never owned it.
+
+## Pruning the tree a nested name left behind
+
+A project name is a path, so
+`@acme/platform/tooling/codestyle` lives at
+`<projects-dir>/acme/platform/tooling/codestyle/` and `bp` created
+`acme/`, `acme/platform/` and `acme/platform/tooling/` on the way down. Those
+intermediate directories hold no `project.toml`, so they are **not projects** —
+nothing lists them and nothing can name them.
+
+Removing the project therefore removes them too, from the deepest upwards,
+**stopping at the first directory that is not empty**. Registering one deep
+project and removing it again leaves the projects directory exactly as it was
+found; a sibling project one level up keeps every parent it needs.
+
+Two directories are never pruned: one that still holds something — a project,
+another intermediate directory, or a file you put there — and the **projects
+directory itself**, which is `bp`'s and exists whether or not any project does.
 
 ## `project_in_use` cannot be waived
 

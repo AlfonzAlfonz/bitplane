@@ -1,6 +1,6 @@
 # ADR-0007: `project.toml` is four fields, and hooks are named scripts
 
-Status: accepted, amended by [ADR-0008](./0008-the-plane-file-is-three-keys-and-a-path-keyed-membership-table.md)
+Status: accepted, amended by [ADR-0008](./0008-the-plane-file-is-three-keys-and-a-path-keyed-membership-table.md) and [ADR-0009](./0009-a-project-name-is-a-path.md)
 Date: 2026-09-21
 
 > **Amended by ADR-0008 in one place.** An **ad-hoc member** — a plane member
@@ -9,6 +9,13 @@ Date: 2026-09-21
 > nothing runs and nothing is reported. `bp run` against one is an error.
 > The log tee to `<plane-dir>/.bitplane/logs/` is unchanged; it was reopened in
 > ticket 09's session and kept.
+
+> **Amended by ADR-0009 in one place.** A **project name** is no longer flat. It
+> is a `/`-separated path of segments, each on this ADR's charset, and an owned
+> project's default name is the full forge path after the host rather than its
+> last segment. `name` is still an integrity check, the directory still wins,
+> and `project rename` still writes it last. What changes is what a name may
+> hold and what one defaults to.
 Ticket: `.alfonz/issues/bitplane-architecture/issues/08-project-schema-and-hooks.md`
 
 ## Context

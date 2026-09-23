@@ -103,20 +103,35 @@ The two are in **1:1 correspondence**: an owned project's source is always a `ur
 Rejected names, so they stop coming back: **remote** collides with git's own `remote` and with **host** (`bp --host devbox` makes "remote project" read as *a project on another machine*); **native** collides with ADR-0001's "no native dependencies"; **cloned** is false, since ADR-0005 builds the repo with `git init --bare` rather than `git clone`.
 
 **project name**
-User-supplied, defaulting to the last segment of the source path (`codestyle`). Flat, unique per host, renameable.
+A `/`-separated **path of segments**, each lowercase `[a-z0-9][a-z0-9._-]*`, unique per host and renameable: `@acme/platform/tooling/codestyle`. No leading or trailing `/`, no empty segment, no `.` or `..`. **Depth is uncapped** — a forge nests as deeply as its groups do — and total length is bounded at 128.
 
-When the default collides with an existing project the operation is **refused with a suggested alternative** (`acme-codestyle`), never silently disambiguated — a generated default that renames itself behind the user's back is worse than an error naming the conflict.
+**`repo.git` and `bin` are reserved as any segment.** Both are legal under the segment charset and both name a directory bitplane puts *inside* a project directory, and the walk that finds projects skips both by name — so a project called `@acme/bin` would sit at a path nothing ever enters, registrable once and invisible thereafter. The reservation is what makes that skip safe. `.bitplane` needs no rule: a segment cannot start with `.`.
 
-Renaming a project moves its project directory and rewrites its entry; existing planes keep the subdirectories they were built with.
+Two derivation rules, which are one rule — *use the namespace when there is one*:
+
+- An **owned project** takes the **full forge path after the host**, minus the transport and a trailing `.git`: `git@gitlab.com:acme/platform/tooling/codestyle.git` becomes `@acme/platform/tooling/codestyle`. A forge path is a namespace — stable, globally unique, and the thing whose absence made flat names collide. The host is not part of the name, so two forges sharing a path collide and fall to the ordinary refusal.
+- An **adopted project** keeps the **last segment**. A filesystem path is an accident of where a home directory sits; `@users/alfonz/projects/bitplane` names the machine, not the project.
+
+A **derived** name is lowercased silently — a *normalisation*, not a guess, since two names differing only in case are the same directory on a case-insensitive filesystem. It never applies to `--name`, which is the user's stated intent, and parsing stays strict everywhere else, so a capital in a hand-edited file is a parse error and never a silent rewrite. A derived name still invalid after lowercasing fails naming the bad segment, with no suggestion.
+
+When a name is already taken the operation is **refused**, never silently disambiguated — a generated default that renames itself behind the user's back is worse than an error naming the conflict. Same source url as the registered project means "already registered", with nothing to fix; a different url is offered the next free alternative, suffixed on the **last segment** (`acme/api-2`), never on the whole name, which would propose a nested project.
+
+**A name may not nest inside another.** `@acme` and `@acme/codestyle` cannot both exist: the second would live inside the first's project directory, where removing `@acme` would take it along unmentioned and the registry walk would never see it. Refused unwaivably, in both directions.
+
+Renaming a project moves its project directory and rewrites its entry; existing planes keep the subdirectories they were built with. See ADR-0009.
 
 **`@` sigil**
-How a project is referenced: `@codestyle`. Syntax only — not part of the name, never in a `BITPLANE_*` environment variable, and **never on disk except as the member-kind tag in the plane file**, where it is the one place a project name and a path are both accepted. The parser strips it once, at the read boundary; a project name never carries the sigil in memory or in any other file. Required wherever a path would also be accepted (that being the only real ambiguity), optional elsewhere, and always used when bitplane prints a project.
+How a project is referenced: `@acme/codestyle`. Syntax only — not part of the name, never in a `BITPLANE_*` environment variable, and **never on disk except as the member-kind tag in the plane file**, where it is the one place a project name and a path are both accepted. The parser strips it once, at the read boundary; a project name never carries the sigil in memory or in any other file. Required wherever a path would also be accepted (that being the only real ambiguity), optional elsewhere, and always used when bitplane prints a project.
+
+**The sigil, not the charset, is what keeps the two member arms apart.** This entry used to add that a project name contains neither `@` nor `/`, and the member arms leaned on it. A name is a path of segments now, so the charset guarantees nothing — but nothing is lost, because the sigil was always doing the work: it is required in exactly the position where the ambiguity exists. `@acme/codestyle` is a project, bare `acme/codestyle` is a relative path, and `MemberRef` parsing is unchanged. See ADR-0009.
 
 **projects directory**
 The directory on a host holding one project directory per project. Exactly one per host, under `$XDG_DATA_HOME/bitplane/projects/` — application-owned data, not configuration, because it holds cloned repositories. **This is the registry** — there is no separate registry file, and the term **registry** is retired.
 
 **project directory**
-`<projects-dir>/<project-name>/`, containing `project.toml` and, for an owned project, the source repo at `repo.git`.
+`<projects-dir>/<project-name>/`, containing `project.toml` and, for an owned project, the source repo at `repo.git`. Since a name is a path, this is a **nested** directory — `@acme/platform/tooling/codestyle` lives at `<projects-dir>/acme/platform/tooling/codestyle/` — and the directory name is still the name.
+
+**Intermediate directories are not projects.** They are created by `add`, they hold no `project.toml`, and nothing lists them. `rm` and `rename` prune them bottom-up while empty, stopping at the first non-empty directory and never removing the projects directory itself. The walk that finds projects is therefore recursive, and stops at the first directory holding a `project.toml`, never descending into `.bitplane`, `repo.git`, `bin` or any dot-directory — an interrupted `add` leaves a bare `repo.git` with no `project.toml`, so without that skip every listing would walk a git object store. A depth cap of 16 bounds the walk, not a name.
 
 `bin/` under it is **prepended to `PATH`** for every script that project runs, so a project can ship its own executables and have them win. It holds executables; a **script** is a declared entry in `project.toml`. The directory is the user's to create and bitplane never writes to it — which is what keeps the shell-alias trust posture true. A project is exactly "a directory containing `project.toml`", which makes the set of known projects self-describing. It is a named child rather than the directory itself, so git commands run while sitting in a project directory do not silently operate on it.
 

@@ -1,7 +1,14 @@
 # ADR-0008: `plane.toml` is three keys, and membership is a path-keyed table
 
-Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md) and [ADR-0007](./0007-project-schema-and-scripts.md)
+Status: accepted, amends [ADR-0003](./0003-the-engine-contract.md), [ADR-0006](./0006-bitplane-owns-a-worktrees-existence-not-its-contents.md) and [ADR-0007](./0007-project-schema-and-scripts.md); amended by [ADR-0009](./0009-a-project-name-is-a-path.md)
 Date: 2026-09-21
+
+> **Amended by ADR-0009 in one place.** The membership arms still cannot
+> collide, but the reason below is wrong. A project name **can** contain `/`
+> now; what separates the arms is the `@` sigil, which is required in exactly
+> the position where a path would also be accepted. Everything else about the
+> value — the sigil stripped once at the read boundary, the path arm absolute
+> and literal — stands.
 Ticket: `.alfonz/issues/bitplane-architecture/issues/09-plane-file.md`
 
 ## Context
@@ -80,8 +87,12 @@ relative to the plane directory root; the value identifies what it is a worktree
 - **Value starting with `@`** — the rest is a project name.
 - **Any other value** — an absolute path to a repo (an **ad-hoc member**, below).
 
-The arms cannot collide: a project name is `[a-z0-9][a-z0-9._-]*` and can
-contain neither `@` nor `/`.
+The arms cannot collide, because the `@` is **required** wherever a path is
+also accepted, and the member value is such a position. (This originally read
+*"a project name is `[a-z0-9][a-z0-9._-]*` and can contain neither `@` nor
+`/`"*. Since [ADR-0009](./0009-a-project-name-is-a-path.md) a name is a
+`/`-separated path of segments, so the charset guarantees nothing here; the
+sigil always did the work.)
 
 **Keys** are quoted, unique, forward-slash separated, and rejected if absolute,
 containing `..`, starting with `./`, or beginning with `.bitplane` — a `..` in a

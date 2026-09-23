@@ -17,13 +17,23 @@ Reconnect a plane's worktrees to their source repos after something moved.
 bp repair [-p <plane>]
 ```
 
-Three moves break a worktree's link to its repo, and `repair` is the cure for
-all three:
+Four moves break a worktree's link to its repo, and `repair` is the cure for
+all four:
 
 - the **plane directory** moved, by a `mv` you ran rather than a
   [`bp rename`](./rename.md);
 - a **worktree** moved within the plane;
-- the **project directory** behind a member moved.
+- the **project directory** behind a member moved;
+- a **project was renamed**, which moves its project directory and is the one
+  case `bp` causes itself.
+
+[`bp project rename`](../project/rename.md) repairs every holding plane as it
+goes, so this is normally invisible. `bp repair` is what finishes the job when
+that sweep was interrupted or could not reach a plane — it converges on the same
+state, and running it on a plane the rename already fixed reports `unchanged`.
+Because a project name is a path, a rename can move the project directory
+several levels through the tree; the repair is the same either way, since
+`git worktree repair` is told where the repo is now rather than how far it went.
 
 `repair` is **idempotent**, because `git worktree repair` is. Running it on a
 healthy plane does nothing and says so.
